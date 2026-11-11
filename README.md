@@ -9,10 +9,47 @@ The tool should detect the technologies a repository uses, select the relevant
 checks, and produce actionable findings. Maintainers should be able to run the same
 analysis locally and in CI/CD pipelines.
 
-> **Status:** This repository currently defines the project direction. The CLI,
-> configuration, and integrations described below are proposed interfaces, not
-> implemented features. Installation instructions will be added when an executable
-> release is available.
+> **Status:** The development setup and CLI help/version options are available.
+> Security analysis, configuration, and integrations described below are planned
+> features.
+
+## Development setup
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run
+the following commands from the repository root. The project uses Python 3.14;
+uv can download it if needed.
+
+```sh
+uv sync --locked
+uv run python -m nomad_sec_ops --help
+uv run python -m nomad_sec_ops --version
+```
+
+The initial toolchain is:
+
+| Tool | Purpose |
+| --- | --- |
+| uv | Python, environment, and dependency management. |
+| Typer | CLI commands, arguments, and help. |
+| Pydantic | Validation and structured models as analysis features are added. |
+| Ruff | Linting, import sorting, and formatting. |
+| pytest | Unit and CLI tests. |
+| ty | Static type checking. |
+
+Run the development checks with:
+
+```sh
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check
+uv run pytest
+```
+
+Use `uv run ruff format .` to format code. Commit `uv.lock` when dependencies
+change. CI runs these same checks against the committed lockfile.
+
+Packaging and the installed `nomadsecops` command are deferred. For now, run
+the CLI from the repository root with `uv run python -m nomad_sec_ops`.
 
 ## Objectives
 

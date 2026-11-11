@@ -1,0 +1,38 @@
+[project]
+name = "nomad-sec-ops"
+version = "0.1.0"
+description = "Security analysis CLI for repositories in the Nomad ecosystem."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "pydantic>=2.14.3",
+    "typer>=0.29.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+    "ty>=0.0.101",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--import-mode=importlib"
+
+[tool.ty.src]
+include = ["nomad_sec_ops", "tests"]
+
+[tool.ty.terminal]
+error-on-warning = true
