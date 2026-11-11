@@ -11,17 +11,18 @@ from typing import Literal
 from nomad_sec_ops.models import AnalysisStatus, CheckResult, Finding, UpstreamRule
 from nomad_sec_ops.scanners.gitlab.context import GitLabContext
 from nomad_sec_ops.scanners.gitlab.pipeline import collect_images
+from nomad_sec_ops.scanners.zizmor_catalog import (
+    ZIZMOR_COMMIT,
+    ZIZMOR_SOURCE_ROOT,
+    ZIZMOR_VERSION,
+)
 
 UPSTREAM = UpstreamRule(
     tool="zizmor",
     rule_id="unpinned-images",
-    version="1.32.0",
-    commit="21bd300700d43d9ba04b0c1fce72a89391ac80b4",
-    source_url=(
-        "https://github.com/zizmorcore/zizmor/blob/"
-        "21bd300700d43d9ba04b0c1fce72a89391ac80b4/"
-        "crates/zizmor/src/audit/unpinned_images.rs"
-    ),
+    version=ZIZMOR_VERSION,
+    commit=ZIZMOR_COMMIT,
+    source_url=(f"{ZIZMOR_SOURCE_ROOT}/crates/zizmor/src/audit/unpinned_images.rs"),
     documentation_url="https://docs.zizmor.sh/audits/#unpinned-images",
 )
 

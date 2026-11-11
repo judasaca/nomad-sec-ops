@@ -237,6 +237,19 @@ do not apply to a repository should be marked **not applicable**.
 
 ## CLI
 
+Report the percentage of zizmor rules with a registered GitLab equivalent:
+
+```sh
+uv run nomadsecops equivalence
+uv run nomadsecops equivalence --all --details
+uv run nomadsecops equivalence --json
+```
+
+Compares registered GitLab equivalents against zizmor v1.32.0: offline rules by
+default, or all rules with `--all`. Use `--details` to list rule status and `--json`
+for structured output. The percentage measures mapped rule coverage, not full
+behavioral equivalence; no scans or network requests are performed.
+
 The main entry point is:
 
 ```sh
