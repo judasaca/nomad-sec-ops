@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from nomad_sec_ops import __version__
 from nomad_sec_ops.cli import app
+from nomad_sec_ops.models import AnalysisStatus, CheckResult
 
 runner = CliRunner()
 
@@ -108,9 +109,11 @@ def test_relative_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 @pytest.mark.parametrize("option", ["--repo", "-r"])
 def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     scanner = Mock(
-        return_value=subprocess.CompletedProcess([], 0, "audit output\n", "")
+        return_value=CheckResult(
+            status=AnalysisStatus.PASSED, message="zizmor", stdout="audit output\n"
+        )
     )
-    monkeypatch.setattr("nomad_sec_ops.cli.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
     result = runner.invoke(app, ["static-analysis", option, repo])
 
     assert result.exit_code == 0
@@ -121,7 +124,7 @@ def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) 
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()
-        assert "Skipping zizmor" in result.output
+        assert "Skipping CI/CD analysis" in result.output
 
 
 def test_conflicting_targets(tmp_path: Path) -> None:

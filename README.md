@@ -9,9 +9,9 @@ The tool should detect the technologies a repository uses, select the relevant
 checks, and produce actionable findings. Maintainers should be able to run the same
 analysis locally and in CI/CD pipelines.
 
-> **Status:** The CLI runs zizmor for GitHub repositories and skips it for GitLab
-> repositories. Other checks, shared configuration, and structured reports remain
-> planned features.
+> **Status:** Repository analysis currently has one step: CI/CD security analysis.
+> That step uses zizmor for GitHub and skips GitLab. Other analysis steps, shared
+> configuration, and exported reports remain planned features.
 
 ## Development setup
 
@@ -31,7 +31,7 @@ The initial toolchain is:
 | --- | --- |
 | uv | Python, environment, and dependency management. |
 | Typer | CLI commands, arguments, and help. |
-| Pydantic | Validation and structured models as analysis features are added. |
+| Pydantic | Structured check results, step results, and repository reports. |
 | Ruff | Linting, import sorting, and formatting. |
 | pytest | Unit and CLI tests. |
 | ty | Static type checking. |
@@ -74,16 +74,50 @@ uses `uv_build` for packaging. The module entry point,
 
 ## Checks
 
-### Implemented: GitHub analysis with zizmor
+### Analysis structure
+
+Repository analysis runs independent steps and collects their results. Each step
+owns its applicability and implementation; the CLI selects the target and renders
+the combined report.
+
+```text
+CLI
+  -> repository analysis
+       -> CI/CD analysis step
+            -> GitHub: zizmor adapter
+            -> GitLab: skipped
+       -> future steps, such as Docker image detection and analysis
+```
+
+The code follows this structure:
+
+| Module | Responsibility |
+| --- | --- |
+| `repositories.py` | Resolve a shared repository target and hosting metadata. |
+| `analysis.py` | Run analysis steps and collect their results. |
+| `models.py` | Define step outcomes and the aggregate report and exit code. |
+| `steps/ci_cd.py` | Select the CI/CD implementation for the repository host. |
+| `scanners/zizmor.py` | Invoke zizmor and translate its output and status. |
+| `cli.py` | Parse arguments and render results. |
+
+To add an analysis step, implement `name` and `run(target) -> CheckResult`, then
+include it in the default steps in `analyze_repository`. Docker detection and
+scanning will be a separate step; they are not implemented yet. A skipped,
+unevaluated, or failed CI/CD step does not prevent later steps from running.
+All step results are retained. Aggregate exit codes follow the precedence
+`2` (error), `1` (findings), `3` (not evaluated), then `0` (passed or skipped).
+
+### Implemented: CI/CD analysis
 
 - Local targets: read the Git `origin` URL to identify the host, then run zizmor
   against the selected directory. Git must be installed. Host detection also works
   when the selected directory is inside a repository.
 - Remote GitHub targets: convert HTTPS or SSH URLs to zizmor's `owner/repo` input.
   Zizmor fetches the remote content; Nomad SecOps does not clone the repository.
-- GitLab targets: skip zizmor and return `0` without running a scanner.
+- GitLab targets: skip the CI/CD step without running a scanner. With only this
+  step enabled, repository analysis returns `0`.
 - Directories without a Git origin and hosts other than `github.com` and
-  `gitlab.com`: report the rule as not evaluated and return `3`. Self-hosted
+  `gitlab.com`: report the CI/CD step as not evaluated (`3`). Self-hosted
   GitHub and GitLab instances are not yet detected.
 
 Zizmor is installed by `uv sync`. Local scans work without credentials, using
@@ -93,8 +127,8 @@ with access to the target repository. Zizmor inherits these settings from the
 environment. See [zizmor operating modes](https://docs.zizmor.sh/usage/#operating-modes)
 for authentication details. `ZIZMOR_OFFLINE` prevents remote scans.
 
-Scanner output is displayed directly. For this first rule, any reported finding
-causes exit code `1`; scanner failures, missing executables, and timeouts produce
+Scanner output is displayed under its step. Any reported finding gives the CI/CD
+step outcome `findings` (`1`); scanner failures, missing executables, and timeouts produce
 `2`; a scan with no supported inputs produces warning code `3`. A successful scan
 without findings returns `0`. The scanner timeout is five minutes.
 
@@ -153,7 +187,7 @@ repository setting, supporting evidence, and a suggested fix. Reports should als
 identify skipped checks, unavailable scanners, and incomplete API access.
 
 The exit code contract is below. Severity thresholds and advisory findings below
-a threshold are planned; the current zizmor rule treats every finding as blocking.
+a threshold are planned; the current CI/CD step treats every finding as blocking.
 
 | Code | Meaning |
 | --- | --- |

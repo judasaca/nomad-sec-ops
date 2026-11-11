@@ -22,6 +22,25 @@ class RemoteRepository:
         return slug
 
 
+@dataclass(frozen=True)
+class RepositoryTarget:
+    """Repository context shared by all analysis steps."""
+
+    local_path: Path | None
+    remote: RemoteRepository | None
+
+
+def resolve_target(
+    path: Path | None = None, repo: str | None = None
+) -> RepositoryTarget:
+    if path is not None and repo is not None:
+        raise ValueError("--path and --repo cannot be used together.")
+    if repo is not None:
+        return RepositoryTarget(local_path=None, remote=parse_remote(repo))
+    local_path = (path if path is not None else Path.cwd()).resolve()
+    return RepositoryTarget(local_path=local_path, remote=local_remote(local_path))
+
+
 def parse_remote(url: str) -> RemoteRepository:
     """Parse HTTPS, SSH, Git transport, and SCP-style Git remote URLs."""
     if any(character.isspace() for character in url):

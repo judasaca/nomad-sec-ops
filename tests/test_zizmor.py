@@ -8,8 +8,9 @@ import pytest
 from typer.testing import CliRunner
 
 from nomad_sec_ops.cli import app
+from nomad_sec_ops.models import AnalysisStatus, CheckResult
 from nomad_sec_ops.repositories import local_remote, parse_remote
-from nomad_sec_ops.zizmor import exit_code, run_zizmor
+from nomad_sec_ops.scanners.zizmor import run_zizmor
 
 runner = CliRunner()
 
@@ -72,7 +73,7 @@ def test_non_github_does_not_run_scanner(
     url: str, expected_code: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     scanner = Mock()
-    monkeypatch.setattr("nomad_sec_ops.cli.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
 
     result = runner.invoke(app, ["static-analysis", "--repo", url])
 
@@ -88,9 +89,11 @@ def test_local_dispatch(
     create_repository(tmp_path, f"git@{host}:org/repo.git")
     monkeypatch.chdir(tmp_path)
     scanner = Mock(
-        return_value=subprocess.CompletedProcess([], 0, "audit output\n", "")
+        return_value=CheckResult(
+            status=AnalysisStatus.PASSED, message="zizmor", stdout="audit output\n"
+        )
     )
-    monkeypatch.setattr("nomad_sec_ops.cli.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
     args = ["static-analysis"]
     if not use_default:
         args.extend(["--path", str(tmp_path)])
@@ -103,7 +106,7 @@ def test_local_dispatch(
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()
-        assert "Skipping zizmor" in result.output
+        assert "Skipping CI/CD analysis" in result.output
 
 
 def test_nested_local_directory(tmp_path: Path) -> None:
@@ -120,7 +123,7 @@ def test_nested_local_directory(tmp_path: Path) -> None:
 def test_missing_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     create_repository(tmp_path, None)
     scanner = Mock()
-    monkeypatch.setattr("nomad_sec_ops.cli.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
 
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
@@ -141,13 +144,12 @@ def test_scanner_exit_codes(
             [], scanner_code, "scanner stdout\n", "scanner stderr\n"
         )
     )
-    monkeypatch.setattr("nomad_sec_ops.cli.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", scanner)
 
     result = runner.invoke(
         app, ["static-analysis", "--repo", "https://github.com/org/repo.git"]
     )
 
-    assert exit_code(scanner_code) == expected
     assert result.exit_code == expected
     assert "scanner stdout" in result.stdout
     assert "scanner stderr" in result.stderr
@@ -164,7 +166,7 @@ def test_scanner_exit_codes(
 def test_scanner_execution_errors(
     error: Exception, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nomad_sec_ops.cli.run_zizmor", Mock(side_effect=error))
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", Mock(side_effect=error))
 
     result = runner.invoke(
         app, ["static-analysis", "--repo", "https://github.com/org/repo.git"]
@@ -176,7 +178,7 @@ def test_scanner_execution_errors(
 
 def test_scanner_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     process = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
-    monkeypatch.setattr("nomad_sec_ops.zizmor.subprocess.run", process)
+    monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", process)
 
     run_zizmor("org/repo")
 
