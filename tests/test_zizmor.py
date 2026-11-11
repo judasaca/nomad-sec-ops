@@ -106,7 +106,7 @@ def test_local_dispatch(
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()
-        assert "no security rules are registered" in result.output
+        assert "No .gitlab-ci.yml found" in result.output
 
 
 def test_nested_local_directory(tmp_path: Path) -> None:

@@ -124,7 +124,7 @@ def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) 
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()
-        assert "no security rules are registered" in result.output
+        assert "Offline rule requires a local checkout" in result.output
 
 
 def test_conflicting_targets(tmp_path: Path) -> None:

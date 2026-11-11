@@ -1,26 +1,12 @@
-"""GitLab CI/CD adapter, shared by hosted and self-hosted GitLab instances.
-
-Rules will implement GitLab equivalents of applicable zizmor checks. This
-scaffold does not claim security coverage until those rules are implemented.
-"""
+"""GitLab CI/CD adapter, shared by hosted and self-hosted GitLab instances."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Protocol
 
 from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, CheckResult, StepResult
 from nomad_sec_ops.repositories import RepositoryTarget
-
-
-@dataclass(frozen=True)
-class GitLabContext:
-    """Repository metadata available to each rule.
-
-    Pipeline parsing, include resolution, and authenticated API access belong in
-    shared context preparation when rules need them, rather than in each rule.
-    """
-
-    target: RepositoryTarget
+from nomad_sec_ops.scanners.gitlab.context import GitLabContext as GitLabContext
+from nomad_sec_ops.scanners.gitlab.unpinned_images import UnpinnedImages
 
 
 class GitLabRule(Protocol):
@@ -32,8 +18,7 @@ class GitLabRule(Protocol):
     def run(self, context: GitLabContext) -> CheckResult: ...
 
 
-# Add production rules here as they are implemented; no checks run implicitly.
-DEFAULT_RULES: tuple[GitLabRule, ...] = ()
+DEFAULT_RULES: tuple[GitLabRule, ...] = (UnpinnedImages(),)
 
 
 def run_gitlab(
@@ -72,4 +57,5 @@ def run_gitlab(
             for item in results
         ),
         stderr="".join(item.result.stderr for item in results),
+        findings=[finding for item in results for finding in item.result.findings],
     )

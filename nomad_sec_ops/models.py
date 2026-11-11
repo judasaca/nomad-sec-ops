@@ -1,6 +1,7 @@
 """Shared results for repository analysis steps and scanner adapters."""
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,12 +14,39 @@ class AnalysisStatus(StrEnum):
     ERROR = "error"
 
 
+class UpstreamRule(BaseModel):
+    """Versioned identity of the reference implementation for an adapted rule."""
+
+    tool: str
+    rule_id: str
+    version: str
+    commit: str
+    source_url: str
+    documentation_url: str
+
+
+class Finding(BaseModel):
+    rule_id: str
+    severity: Literal["informational", "low", "medium", "high"]
+    confidence: Literal["low", "medium", "high"]
+    persona: Literal["regular", "pedantic"]
+    file: str
+    line: int
+    column: int
+    location: str
+    message: str
+    evidence: str
+    remediation: str
+    upstream: UpstreamRule
+
+
 class CheckResult(BaseModel):
     status: AnalysisStatus
     message: str
     tool: str | None = None
     stdout: str = ""
     stderr: str = ""
+    findings: list[Finding] = Field(default_factory=list)
 
 
 class StepResult(BaseModel):

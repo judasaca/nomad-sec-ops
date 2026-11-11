@@ -1,4 +1,4 @@
-"""Verify GitLab routing and the rule scaffold without implementing audits."""
+"""Verify GitLab routing and rule aggregation."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,9 +51,10 @@ def test_self_hosted_cli(local: bool, tmp_path: Path) -> None:
     result = CliRunner().invoke(app, args)
 
     assert result.exit_code == 3
-    assert (
-        "GitLab CI/CD not evaluated: no security rules are registered" in result.output
+    expected = (
+        "No .gitlab-ci.yml found" if local else "Offline rule requires a local checkout"
     )
+    assert expected in result.output
 
 
 def test_invalid_provider() -> None:

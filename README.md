@@ -10,8 +10,9 @@ checks, and produce actionable findings. Maintainers should be able to run the s
 analysis locally and in CI/CD pipelines.
 
 > **Status:** Repository analysis currently has one step: CI/CD security analysis.
-> That step uses zizmor for GitHub and a GitLab adapter scaffold with no rules yet.
-> Other analysis steps, shared configuration, and exported reports remain planned features.
+> That step uses zizmor for GitHub and an offline `unpinned-images` rule for GitLab.
+> Other analysis steps, shared configuration, and exported reports remain planned
+> features.
 
 ## Development setup
 
@@ -36,6 +37,7 @@ The initial toolchain is:
 | pytest | Unit and CLI tests. |
 | ty | Static type checking. |
 | zizmor | Security analysis of GitHub Actions and related configuration. |
+| PyYAML | Read local GitLab CI/CD configuration with source locations. |
 
 Run the development checks with:
 
@@ -85,7 +87,7 @@ CLI
   -> repository analysis
        -> CI/CD analysis step
             -> GitHub: zizmor adapter
-            -> GitLab (including self-hosted): rule adapter scaffold
+            -> GitLab (including self-hosted): offline rules
        -> future steps, such as Docker image detection and analysis
 ```
 
@@ -115,8 +117,11 @@ All step results are retained. Aggregate exit codes follow the precedence
   when the selected directory is inside a repository.
 - Remote GitHub targets: convert HTTPS or SSH URLs to zizmor's `owner/repo` input.
   Zizmor fetches the remote content; Nomad SecOps does not clone the repository.
-- GitLab targets: route to the GitLab adapter. Its rule registry is currently empty,
-  so the step reports not evaluated (`3`), without fetching or auditing content.
+- Local GitLab targets: inspect `.gitlab-ci.yml` in the selected directory using
+  the offline `unpinned-images` rule. Findings return `1`; unavailable inputs or
+  incomplete coverage without findings return `3`.
+- Remote GitLab targets: report not evaluated (`3`); offline rules require a
+  local checkout and do not fetch remote content.
 - Self-hosted GitLab: select `--provider gitlab` with a local checkout or remote URL.
   Hostnames are not guessed; `gitlab.com` is detected automatically. An explicit
   provider also allows local analysis without an origin.
@@ -137,25 +142,75 @@ without findings returns `0`. The scanner timeout is five minutes.
 
 ### Extending the GitLab adapter
 
-The goal is to implement GitLab equivalents of applicable zizmor checks. No
-security rules are implemented yet, and the scaffold provides no audit coverage.
-GitHub-specific checks will need explicit GitLab semantics before implementation.
+The adapter implements GitLab equivalents of applicable zizmor checks.
+GitHub-specific checks need explicit GitLab semantics before implementation.
 
 Implement `GitLabRule` in `scanners/gitlab/` with a stable `name` and
 `run(context: GitLabContext) -> CheckResult`, then register the instance in
 `DEFAULT_RULES`. Use the corresponding zizmor identifier where semantics align.
 The context carries the full `RepositoryTarget`, including the host, project path,
 and optional local checkout. Rule results follow the shared status and exit code
-precedence; messages, evidence, and diagnostics are retained in adapter output.
+precedence; structured findings, evidence, and diagnostics are retained in adapter output.
 Tests can inject a rule sequence through `run_gitlab(target, rules=...)`.
 
-Pipeline discovery and parsing, include resolution, remote retrieval, and
-self-hosted API authentication will be added as rules require them. Rules must
-report unavailable inputs as not evaluated rather than passing.
+Include resolution, remote retrieval, and self-hosted API authentication remain
+unimplemented. Rules must report unavailable inputs as not evaluated rather than
+passing.
 
 ```sh
 nomadsecops static-analysis --path /path/to/checkout --provider gitlab
 nomadsecops static-analysis --repo https://code.example.org/group/project.git --provider gitlab
+```
+
+### GitLab rule: `unpinned-images`
+
+The rule ID is exactly **`unpinned-images`**, matching
+[zizmor's audit](https://docs.zizmor.sh/audits/#unpinned-images). The reference
+implementation is pinned to **zizmor v1.32.0**, commit
+`21bd300700d43d9ba04b0c1fce72a89391ac80b4`:
+[upstream source](https://github.com/zizmorcore/zizmor/blob/21bd300700d43d9ba04b0c1fce72a89391ac80b4/crates/zizmor/src/audit/unpinned_images.rs).
+`UnpinnedImages.upstream` exposes this identity. Every structured finding includes
+the same metadata in `upstream`, plus its `rule_id`, severity, confidence, persona,
+file, line, column, YAML location, image reference, and suggested fix.
+
+| Image reference | Default (regular) persona | Pedantic persona |
+| --- | --- | --- |
+| No tag, or `:latest` | High severity, high confidence | Same |
+| Other explicit tag | Suppressed | High severity, high confidence |
+| Digest suffix (`@...`) | No finding | No finding |
+| Dynamic reference (`$IMAGE`, `${IMAGE}`, `$[[ inputs.image ]]`) | High severity, low confidence | Same |
+| Empty string | No finding | No finding |
+
+The lexical classification, severity, confidence, and persona follow upstream.
+As in the reference implementation, a digest suffix is accepted without checking
+its algorithm, length, contents, or registry existence. This is a pinning audit,
+not an image reference validator. Registry ports are distinguished from tags.
+The CLI uses the regular persona. Python callers can select pedantic behavior
+with `run_gitlab(target, rules=[UnpinnedImages(persona="pedantic")])`.
+
+GitHub job containers map to GitLab `image`; GitHub service containers map to
+GitLab `services`. The rule scans both string and `name` forms in top-level
+defaults, `default:`, jobs, and hidden templates. It inspects declarations once
+per location rather than expanding inheritance into every job. YAML aliases are
+supported; their source position points to the anchor definition.
+
+GitLab variables and input expressions are opaque, analogous to upstream's
+non-matrix expressions. Variable expansion, matrix expansion, `extends`
+resolution, YAML merge keys, `!reference`, includes (including local includes),
+custom CI configuration paths, and runner-provided defaults are outside this
+first rule's scope. Encountered includes, merge keys, and image/service
+`!reference` nodes produce visible not-evaluated diagnostics. Findings still
+take exit-code precedence over those diagnostics. No API or registry is queried.
+Malformed relevant YAML produces an execution error (`2`).
+
+`tests/test_unpinned_images.py` runs the installed, locked zizmor executable with
+`--offline`, comparing equivalent GitHub/GitLab inputs in both personas. The test
+checks the upstream version, identifier, annotation, severity, confidence, and
+persona; upgrading zizmor requires reviewing the versioned mapping.
+
+```sh
+uv run pytest tests/test_unpinned_images.py
+nomadsecops static-analysis --path /home/judasaca/Documents/nomad-distro-dev/packages/nomad-gui --provider gitlab
 ```
 
 ### Planned checks
