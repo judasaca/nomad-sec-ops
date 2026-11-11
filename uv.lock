@@ -62,7 +62,7 @@ wheels = [
 [[package]]
 name = "nomad-sec-ops"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
     { name = "typer" },

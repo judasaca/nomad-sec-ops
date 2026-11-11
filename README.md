@@ -21,8 +21,8 @@ uv can download it if needed.
 
 ```sh
 uv sync --locked
-uv run python -m nomad_sec_ops --help
-uv run python -m nomad_sec_ops --version
+uv run nomadsecops --help
+uv run nomadsecops --version
 ```
 
 The initial toolchain is:
@@ -48,8 +48,16 @@ uv run pytest
 Use `uv run ruff format .` to format code. Commit `uv.lock` when dependencies
 change. CI runs these same checks against the committed lockfile.
 
-Packaging and the installed `nomadsecops` command are deferred. For now, run
-the CLI from the repository root with `uv run python -m nomad_sec_ops`.
+To call `nomadsecops` directly, activate the project's virtual environment:
+
+```sh
+source .venv/bin/activate
+nomadsecops --help
+```
+
+The command is installed into the virtual environment by `uv sync`. The project
+uses `uv_build` for packaging. The module entry point,
+`uv run python -m nomad_sec_ops`, also remains available.
 
 ## Objectives
 
