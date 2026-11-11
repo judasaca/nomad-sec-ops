@@ -57,3 +57,94 @@ def test_installed_command(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert result.stdout.strip() == f"nomadsecops {__version__}"
+
+
+def test_target_help() -> None:
+    result = runner.invoke(app, ["static-analysis", "--help"])
+
+    assert result.exit_code == 0
+    assert "--path" in result.output
+    assert "--repo" in result.output
+    assert "Local project directory." in result.output
+
+
+def test_default_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["static-analysis"])
+
+    assert result.exit_code == 0
+    assert f"Local path: {tmp_path.resolve()}" in result.output
+    assert "Security analysis is not implemented yet." in result.output
+
+
+@pytest.mark.parametrize("option", ["--path", "-p"])
+def test_local_target(option: str, tmp_path: Path) -> None:
+    target = tmp_path / "project with spaces"
+    target.mkdir()
+
+    result = runner.invoke(app, ["static-analysis", option, str(target)])
+
+    assert result.exit_code == 0
+    assert f"Local path: {target.resolve()}" in result.output
+
+
+def test_relative_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "project"
+    target.mkdir()
+
+    result = runner.invoke(app, ["static-analysis", "--path", "project"])
+
+    assert result.exit_code == 0
+    assert f"Local path: {target.resolve()}" in result.output
+
+
+@pytest.mark.parametrize(
+    "repo",
+    ["https://github.com/org/repo.git", "git@gitlab.com:org/repo.git"],
+)
+@pytest.mark.parametrize("option", ["--repo", "-r"])
+def test_remote_target(option: str, repo: str) -> None:
+    result = runner.invoke(app, ["static-analysis", option, repo])
+
+    assert result.exit_code == 0
+    assert f"Remote repository: {repo}" in result.output
+    assert "Local path:" not in result.output
+    assert "Security analysis is not implemented yet." in result.output
+
+
+def test_conflicting_targets(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "static-analysis",
+            "--path",
+            str(tmp_path),
+            "--repo",
+            "https://github.com/org/repo.git",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "cannot be used together" in result.output
+
+
+@pytest.mark.parametrize("target_kind", ["missing", "file"])
+def test_invalid_local_target(target_kind: str, tmp_path: Path) -> None:
+    target = tmp_path / "project"
+    if target_kind == "file":
+        target.write_text("not a directory")
+
+    result = runner.invoke(app, ["static-analysis", "--path", str(target)])
+
+    assert result.exit_code == 2
+    assert "Local path:" not in result.output
+
+
+@pytest.mark.parametrize("repo", ["", "   "])
+def test_empty_remote_target(repo: str) -> None:
+    result = runner.invoke(app, ["static-analysis", "--repo", repo])
+
+    assert result.exit_code == 2
+    assert "Repository URL cannot be empty" in result.output

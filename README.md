@@ -9,9 +9,9 @@ The tool should detect the technologies a repository uses, select the relevant
 checks, and produce actionable findings. Maintainers should be able to run the same
 analysis locally and in CI/CD pipelines.
 
-> **Status:** The development setup and CLI help/version options are available.
-> Security analysis, configuration, and integrations described below are planned
-> features.
+> **Status:** The development setup, CLI help/version options, and target selection
+> are available. Security analysis, configuration, and integrations described below
+> are planned features. Target selection does not clone repositories or run checks.
 
 ## Development setup
 
@@ -93,7 +93,7 @@ should still work without credentials, but inaccessible settings must be reporte
 as **not evaluated**, with the reason, rather than as passing checks. Checks that
 do not apply to a repository should be marked **not applicable**.
 
-## Proposed CLI
+## CLI
 
 The main entry point is:
 
@@ -101,8 +101,23 @@ The main entry point is:
 nomadsecops static-analysis
 ```
 
-By default, this command should analyze the current repository, detect applicable
-technologies, and print findings with remediation guidance.
+By default, the target is the current working directory. Select another local
+directory with `--path` (`-p`) or a remote Git repository with `--repo` (`-r`):
+
+```sh
+nomadsecops static-analysis --path /path/to/project
+nomadsecops static-analysis --repo https://github.com/org/repo.git
+nomadsecops static-analysis --repo git@gitlab.com:org/repo.git
+```
+
+`--path` must identify an existing, readable directory. Relative paths are resolved
+against the current working directory. `--path` and `--repo` are mutually exclusive;
+passing both produces usage error code `2`.
+
+Currently, this command prints the selected target and a notice that security
+analysis is not implemented. Remote URLs are accepted as target strings; their
+syntax, reachability, and authentication are not verified yet. The planned analysis
+will detect applicable technologies and print findings with remediation guidance.
 
 ### Results and exit codes
 
