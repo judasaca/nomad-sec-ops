@@ -3,8 +3,14 @@
 import re
 import subprocess
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlsplit
+
+
+class RepositoryProvider(StrEnum):
+    GITHUB = "github"
+    GITLAB = "gitlab"
 
 
 @dataclass(frozen=True)
@@ -28,17 +34,35 @@ class RepositoryTarget:
 
     local_path: Path | None
     remote: RemoteRepository | None
+    provider: RepositoryProvider | None = None
+
+    @property
+    def hosting_provider(self) -> RepositoryProvider | None:
+        if self.provider is not None:
+            return self.provider
+        if self.remote is not None:
+            return {
+                "github.com": RepositoryProvider.GITHUB,
+                "gitlab.com": RepositoryProvider.GITLAB,
+            }.get(self.remote.host)
+        return None
 
 
 def resolve_target(
-    path: Path | None = None, repo: str | None = None
+    path: Path | None = None,
+    repo: str | None = None,
+    provider: RepositoryProvider | None = None,
 ) -> RepositoryTarget:
     if path is not None and repo is not None:
         raise ValueError("--path and --repo cannot be used together.")
     if repo is not None:
-        return RepositoryTarget(local_path=None, remote=parse_remote(repo))
+        return RepositoryTarget(
+            local_path=None, remote=parse_remote(repo), provider=provider
+        )
     local_path = (path if path is not None else Path.cwd()).resolve()
-    return RepositoryTarget(local_path=local_path, remote=local_remote(local_path))
+    return RepositoryTarget(
+        local_path=local_path, remote=local_remote(local_path), provider=provider
+    )
 
 
 def parse_remote(url: str) -> RemoteRepository:

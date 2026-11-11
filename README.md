@@ -10,8 +10,8 @@ checks, and produce actionable findings. Maintainers should be able to run the s
 analysis locally and in CI/CD pipelines.
 
 > **Status:** Repository analysis currently has one step: CI/CD security analysis.
-> That step uses zizmor for GitHub and skips GitLab. Other analysis steps, shared
-> configuration, and exported reports remain planned features.
+> That step uses zizmor for GitHub and a GitLab adapter scaffold with no rules yet.
+> Other analysis steps, shared configuration, and exported reports remain planned features.
 
 ## Development setup
 
@@ -85,7 +85,7 @@ CLI
   -> repository analysis
        -> CI/CD analysis step
             -> GitHub: zizmor adapter
-            -> GitLab: skipped
+            -> GitLab (including self-hosted): rule adapter scaffold
        -> future steps, such as Docker image detection and analysis
 ```
 
@@ -98,6 +98,7 @@ The code follows this structure:
 | `models.py` | Define step outcomes and the aggregate report and exit code. |
 | `steps/ci_cd.py` | Select the CI/CD implementation for the repository host. |
 | `scanners/zizmor.py` | Invoke zizmor and translate its output and status. |
+| `scanners/gitlab/` | GitLab adapter, rule interface, and rule registry. |
 | `cli.py` | Parse arguments and render results. |
 
 To add an analysis step, implement `name` and `run(target) -> CheckResult`, then
@@ -109,16 +110,18 @@ All step results are retained. Aggregate exit codes follow the precedence
 
 ### Implemented: CI/CD analysis
 
-- Local targets: read the Git `origin` URL to identify the host, then run zizmor
+- Local GitHub targets: read the Git `origin` URL to identify the host, then run zizmor
   against the selected directory. Git must be installed. Host detection also works
   when the selected directory is inside a repository.
 - Remote GitHub targets: convert HTTPS or SSH URLs to zizmor's `owner/repo` input.
   Zizmor fetches the remote content; Nomad SecOps does not clone the repository.
-- GitLab targets: skip the CI/CD step without running a scanner. With only this
-  step enabled, repository analysis returns `0`.
-- Directories without a Git origin and hosts other than `github.com` and
-  `gitlab.com`: report the CI/CD step as not evaluated (`3`). Self-hosted
-  GitHub and GitLab instances are not yet detected.
+- GitLab targets: route to the GitLab adapter. Its rule registry is currently empty,
+  so the step reports not evaluated (`3`), without fetching or auditing content.
+- Self-hosted GitLab: select `--provider gitlab` with a local checkout or remote URL.
+  Hostnames are not guessed; `gitlab.com` is detected automatically. An explicit
+  provider also allows local analysis without an origin.
+- Directories without a Git origin or an explicit provider, and unrecognized hosts:
+  report the CI/CD step as not evaluated (`3`). Self-hosted GitHub is unsupported.
 
 Zizmor is installed by `uv sync`. Local scans work without credentials, using
 zizmor's offline mode; audits that need API access are unavailable in that mode.
@@ -131,6 +134,29 @@ Scanner output is displayed under its step. Any reported finding gives the CI/CD
 step outcome `findings` (`1`); scanner failures, missing executables, and timeouts produce
 `2`; a scan with no supported inputs produces warning code `3`. A successful scan
 without findings returns `0`. The scanner timeout is five minutes.
+
+### Extending the GitLab adapter
+
+The goal is to implement GitLab equivalents of applicable zizmor checks. No
+security rules are implemented yet, and the scaffold provides no audit coverage.
+GitHub-specific checks will need explicit GitLab semantics before implementation.
+
+Implement `GitLabRule` in `scanners/gitlab/` with a stable `name` and
+`run(context: GitLabContext) -> CheckResult`, then register the instance in
+`DEFAULT_RULES`. Use the corresponding zizmor identifier where semantics align.
+The context carries the full `RepositoryTarget`, including the host, project path,
+and optional local checkout. Rule results follow the shared status and exit code
+precedence; messages, evidence, and diagnostics are retained in adapter output.
+Tests can inject a rule sequence through `run_gitlab(target, rules=...)`.
+
+Pipeline discovery and parsing, include resolution, remote retrieval, and
+self-hosted API authentication will be added as rules require them. Rules must
+report unavailable inputs as not evaluated rather than passing.
+
+```sh
+nomadsecops static-analysis --path /path/to/checkout --provider gitlab
+nomadsecops static-analysis --repo https://code.example.org/group/project.git --provider gitlab
+```
 
 ### Planned checks
 

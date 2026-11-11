@@ -116,7 +116,7 @@ def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
     result = runner.invoke(app, ["static-analysis", option, repo])
 
-    assert result.exit_code == 0
+    assert result.exit_code == (0 if "github.com" in repo else 3)
     assert f"Remote repository: {repo}" in result.output
     assert "Local path:" not in result.output
     if "github.com" in repo:
@@ -124,7 +124,7 @@ def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) 
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()
-        assert "Skipping CI/CD analysis" in result.output
+        assert "no security rules are registered" in result.output
 
 
 def test_conflicting_targets(tmp_path: Path) -> None:

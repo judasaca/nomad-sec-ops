@@ -62,8 +62,8 @@ def test_invalid_urls(url: str) -> None:
 @pytest.mark.parametrize(
     ("url", "expected_code"),
     [
-        ("https://gitlab.com/group/subgroup/repo.git", 0),
-        ("git@gitlab.com:group/repo.git", 0),
+        ("https://gitlab.com/group/subgroup/repo.git", 3),
+        ("git@gitlab.com:group/repo.git", 3),
         ("https://github.com.example.org/org/repo.git", 3),
         ("https://github.com@example.org/org/repo.git", 3),
         ("https://gitlab.example.org/group/repo.git", 3),
@@ -100,13 +100,13 @@ def test_local_dispatch(
 
     result = runner.invoke(app, args)
 
-    assert result.exit_code == 0
+    assert result.exit_code == (0 if host == "github.com" else 3)
     if host == "github.com":
         scanner.assert_called_once_with(str(tmp_path.resolve()))
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()
-        assert "Skipping CI/CD analysis" in result.output
+        assert "no security rules are registered" in result.output
 
 
 def test_nested_local_directory(tmp_path: Path) -> None:

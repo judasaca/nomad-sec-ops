@@ -47,13 +47,13 @@ def test_all_steps_run_and_retain_results(status: AnalysisStatus) -> None:
     assert report.steps[1].result.status == AnalysisStatus.PASSED
 
 
-def test_skipped_gitlab_ci_does_not_skip_repository_analysis() -> None:
+def test_unevaluated_gitlab_ci_does_not_skip_repository_analysis() -> None:
     target = RepositoryTarget(None, RemoteRepository("gitlab.com", "org/repo"))
     next_step = ExampleStep("next-step", AnalysisStatus.FINDINGS)
 
     report = analyze_repository(target, steps=[CICDAnalysis(), next_step])
 
-    assert report.steps[0].result.status == AnalysisStatus.SKIPPED
+    assert report.steps[0].result.status == AnalysisStatus.NOT_EVALUATED
     assert next_step.calls == [target]
     assert report.exit_code == 1
 

@@ -9,7 +9,7 @@ import typer
 from nomad_sec_ops import __version__
 from nomad_sec_ops.analysis import analyze_repository
 from nomad_sec_ops.models import AnalysisStatus
-from nomad_sec_ops.repositories import resolve_target
+from nomad_sec_ops.repositories import RepositoryProvider, resolve_target
 
 app = typer.Typer(
     name="nomadsecops",
@@ -52,6 +52,13 @@ def static_analysis(
             help="Remote Git repository URL (HTTPS or SSH). Exclusive with --path.",
         ),
     ] = None,
+    provider: Annotated[
+        RepositoryProvider | None,
+        typer.Option(
+            "--provider",
+            help="Hosting provider override; use gitlab for self-hosted GitLab.",
+        ),
+    ] = None,
 ) -> None:
     """Run applicable security checks on a local or remote repository."""
     if path is not None and repo is not None:
@@ -63,7 +70,7 @@ def static_analysis(
                 "Repository URL cannot be empty.", param_hint="--repo"
             )
     try:
-        target = resolve_target(path=path, repo=repo)
+        target = resolve_target(path=path, repo=repo, provider=provider)
         if repo is not None:
             typer.echo(f"Remote repository: {repo}")
         else:
