@@ -3,6 +3,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
@@ -73,9 +74,9 @@ def test_default_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
 
     result = runner.invoke(app, ["static-analysis"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 3
     assert f"Local path: {tmp_path.resolve()}" in result.output
-    assert "Security analysis is not implemented yet." in result.output
+    assert "no Git origin" in result.output
 
 
 @pytest.mark.parametrize("option", ["--path", "-p"])
@@ -85,7 +86,7 @@ def test_local_target(option: str, tmp_path: Path) -> None:
 
     result = runner.invoke(app, ["static-analysis", option, str(target)])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 3
     assert f"Local path: {target.resolve()}" in result.output
 
 
@@ -96,7 +97,7 @@ def test_relative_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
     result = runner.invoke(app, ["static-analysis", "--path", "project"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 3
     assert f"Local path: {target.resolve()}" in result.output
 
 
@@ -105,13 +106,22 @@ def test_relative_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     ["https://github.com/org/repo.git", "git@gitlab.com:org/repo.git"],
 )
 @pytest.mark.parametrize("option", ["--repo", "-r"])
-def test_remote_target(option: str, repo: str) -> None:
+def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Mock(
+        return_value=subprocess.CompletedProcess([], 0, "audit output\n", "")
+    )
+    monkeypatch.setattr("nomad_sec_ops.cli.run_zizmor", scanner)
     result = runner.invoke(app, ["static-analysis", option, repo])
 
     assert result.exit_code == 0
     assert f"Remote repository: {repo}" in result.output
     assert "Local path:" not in result.output
-    assert "Security analysis is not implemented yet." in result.output
+    if "github.com" in repo:
+        scanner.assert_called_once_with("org/repo")
+        assert "audit output" in result.output
+    else:
+        scanner.assert_not_called()
+        assert "Skipping zizmor" in result.output
 
 
 def test_conflicting_targets(tmp_path: Path) -> None:

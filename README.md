@@ -1,6 +1,6 @@
 # Nomad SecOps
 
-Nomad SecOps is a planned security analysis CLI for auditing GitHub and GitLab
+Nomad SecOps is a security analysis CLI for auditing GitHub and GitLab
 repositories in the Nomad ecosystem. It aims to help maintainers identify insecure
 repository settings, improve CI/CD practices, and apply consistent security checks
 across projects.
@@ -9,9 +9,9 @@ The tool should detect the technologies a repository uses, select the relevant
 checks, and produce actionable findings. Maintainers should be able to run the same
 analysis locally and in CI/CD pipelines.
 
-> **Status:** The development setup, CLI help/version options, and target selection
-> are available. Security analysis, configuration, and integrations described below
-> are planned features. Target selection does not clone repositories or run checks.
+> **Status:** The CLI runs zizmor for GitHub repositories and skips it for GitLab
+> repositories. Other checks, shared configuration, and structured reports remain
+> planned features.
 
 ## Development setup
 
@@ -35,6 +35,7 @@ The initial toolchain is:
 | Ruff | Linting, import sorting, and formatting. |
 | pytest | Unit and CLI tests. |
 | ty | Static type checking. |
+| zizmor | Security analysis of GitHub Actions and related configuration. |
 
 Run the development checks with:
 
@@ -71,7 +72,33 @@ uses `uv_build` for packaging. The module entry point,
 - Provide useful results locally and enforce configurable security requirements
   in CI/CD.
 
-## Planned checks
+## Checks
+
+### Implemented: GitHub analysis with zizmor
+
+- Local targets: read the Git `origin` URL to identify the host, then run zizmor
+  against the selected directory. Git must be installed. Host detection also works
+  when the selected directory is inside a repository.
+- Remote GitHub targets: convert HTTPS or SSH URLs to zizmor's `owner/repo` input.
+  Zizmor fetches the remote content; Nomad SecOps does not clone the repository.
+- GitLab targets: skip zizmor and return `0` without running a scanner.
+- Directories without a Git origin and hosts other than `github.com` and
+  `gitlab.com`: report the rule as not evaluated and return `3`. Self-hosted
+  GitHub and GitLab instances are not yet detected.
+
+Zizmor is installed by `uv sync`. Local scans work without credentials, using
+zizmor's offline mode; audits that need API access are unavailable in that mode.
+For remote scans, set `GH_TOKEN`, `GITHUB_TOKEN`, or `ZIZMOR_GITHUB_TOKEN` to a token
+with access to the target repository. Zizmor inherits these settings from the
+environment. See [zizmor operating modes](https://docs.zizmor.sh/usage/#operating-modes)
+for authentication details. `ZIZMOR_OFFLINE` prevents remote scans.
+
+Scanner output is displayed directly. For this first rule, any reported finding
+causes exit code `1`; scanner failures, missing executables, and timeouts produce
+`2`; a scan with no supported inputs produces warning code `3`. A successful scan
+without findings returns `0`. The scanner timeout is five minutes.
+
+### Planned checks
 
 | Area | What the tool should check |
 | --- | --- |
@@ -80,7 +107,7 @@ uses `uv_build` for packaging. The module entry point,
 | Python dependencies | Detect Python projects and verify that CI includes dependency vulnerability checks covering the project's dependency manifests or lockfiles. |
 | npm dependencies | Detect npm projects and verify that CI includes dependency vulnerability checks and uses lockfiles for reproducible dependency installation. |
 | Docker | Detect Dockerfiles and container build jobs; check for Dockerfile security analysis and image vulnerability scanning, and review practices such as base image pinning and non-root execution. |
-| GitHub Actions | Integrate [zizmor](https://docs.zizmor.sh/) to audit workflow security using its [audit rules](https://docs.zizmor.sh/audits/). |
+| GitHub Actions | Expand the existing [zizmor](https://docs.zizmor.sh/) integration with structured reports and configurable failure thresholds. |
 | GitLab CI/CD | Review pipeline configuration, job token permissions, protected variables, and controls around privileged jobs and deployment environments. |
 
 Checks should distinguish between a missing security job, a configured job whose
@@ -114,10 +141,10 @@ nomadsecops static-analysis --repo git@gitlab.com:org/repo.git
 against the current working directory. `--path` and `--repo` are mutually exclusive;
 passing both produces usage error code `2`.
 
-Currently, this command prints the selected target and a notice that security
-analysis is not implemented. Remote URLs are accepted as target strings; their
-syntax, reachability, and authentication are not verified yet. The planned analysis
-will detect applicable technologies and print findings with remediation guidance.
+The command identifies the hosting service and runs applicable checks. GitHub
+repository URLs must identify an owner and repository, rather than a web page for
+a branch or individual file. Remote reachability and authentication are checked
+by zizmor when it fetches the target.
 
 ### Results and exit codes
 
@@ -125,7 +152,8 @@ Each finding should include a stable check identifier, severity, affected file o
 repository setting, supporting evidence, and a suggested fix. Reports should also
 identify skipped checks, unavailable scanners, and incomplete API access.
 
-The proposed exit code contract is:
+The exit code contract is below. Severity thresholds and advisory findings below
+a threshold are planned; the current zizmor rule treats every finding as blocking.
 
 | Code | Meaning |
 | --- | --- |
