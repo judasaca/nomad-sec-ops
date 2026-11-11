@@ -1,7 +1,7 @@
 """Run independent repository analysis steps and aggregate their results."""
 
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Protocol
 
 from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, CheckResult, StepResult
@@ -17,7 +17,11 @@ class AnalysisStep(Protocol):
 
 
 def analyze_repository(
-    target: RepositoryTarget, steps: Sequence[AnalysisStep] | None = None
+    target: RepositoryTarget,
+    steps: Sequence[AnalysisStep] | None = None,
+    *,
+    on_step_start: Callable[[str], None] | None = None,
+    on_step_complete: Callable[[StepResult], None] | None = None,
 ) -> AnalysisReport:
     """A skipped or failed step does not stop the remaining repository checks."""
     selected_steps: Sequence[AnalysisStep] = (
@@ -25,6 +29,8 @@ def analyze_repository(
     )
     results: list[StepResult] = []
     for step in selected_steps:
+        if on_step_start is not None:
+            on_step_start(step.name)
         try:
             result = step.run(target)
         except FileNotFoundError as error:
@@ -41,5 +47,8 @@ def analyze_repository(
             )
         except (OSError, ValueError) as error:
             result = CheckResult(status=AnalysisStatus.ERROR, message=str(error))
-        results.append(StepResult(name=step.name, result=result))
+        step_result = StepResult(name=step.name, result=result)
+        results.append(step_result)
+        if on_step_complete is not None:
+            on_step_complete(step_result)
     return AnalysisReport(steps=results)

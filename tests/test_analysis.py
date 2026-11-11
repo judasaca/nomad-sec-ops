@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from nomad_sec_ops.analysis import analyze_repository
-from nomad_sec_ops.models import AnalysisStatus, CheckResult
+from nomad_sec_ops.models import AnalysisStatus, CheckResult, StepResult
 from nomad_sec_ops.repositories import RemoteRepository, RepositoryTarget
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
 
@@ -105,3 +105,27 @@ def test_empty_step_selection_does_not_run_defaults() -> None:
     report = analyze_repository(RepositoryTarget(None, None), steps=[])
 
     assert report.steps == []
+
+
+def test_progress_callbacks_follow_execution_and_errors() -> None:
+    events: list[str] = []
+    target = RepositoryTarget(None, None)
+    broken = ExampleStep("broken", AnalysisStatus.PASSED, OSError("failure"))
+    following = ExampleStep("following", AnalysisStatus.PASSED)
+
+    def completed(step: StepResult) -> None:
+        events.append(f"done:{step.name}:{step.result.status.value}")
+
+    analyze_repository(
+        target,
+        steps=[broken, following],
+        on_step_start=lambda name: events.append(f"start:{name}"),
+        on_step_complete=completed,
+    )
+
+    assert events == [
+        "start:broken",
+        "done:broken:error",
+        "start:following",
+        "done:following:passed",
+    ]

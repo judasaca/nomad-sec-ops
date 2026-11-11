@@ -256,6 +256,11 @@ The main entry point is:
 nomadsecops static-analysis
 ```
 
+The CLI shows the active step, progress, and elapsed time in interactive terminals,
+with plain status lines when output is redirected. Add `--demo` to include simulated
+npm dependency, Python dependency, and Docker steps. Each waits four seconds and is
+reported as skipped; these demo steps do not run security scans or affect the exit code.
+
 By default, the target is the current working directory. Select another local
 directory with `--path` (`-p`) or a remote Git repository with `--repo` (`-r`):
 

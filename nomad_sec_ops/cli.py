@@ -7,10 +7,13 @@ from typing import Annotated
 import typer
 
 from nomad_sec_ops import __version__
-from nomad_sec_ops.analysis import analyze_repository
+from nomad_sec_ops.analysis import AnalysisStep
 from nomad_sec_ops.equivalence import build_equivalence_report
 from nomad_sec_ops.models import AnalysisStatus
+from nomad_sec_ops.progress import run_with_progress
 from nomad_sec_ops.repositories import RepositoryProvider, resolve_target
+from nomad_sec_ops.steps.ci_cd import CICDAnalysis
+from nomad_sec_ops.steps.demo import demo_steps
 
 app = typer.Typer(
     name="nomadsecops",
@@ -18,6 +21,13 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+STEP_COLORS = {
+    "ci-cd": typer.colors.MAGENTA,
+    "npm-dependencies": typer.colors.GREEN,
+    "python-dependencies": typer.colors.YELLOW,
+    "docker": typer.colors.CYAN,
+}
 
 
 @app.callback(invoke_without_command=True)
@@ -99,6 +109,13 @@ def static_analysis(
             help="Hosting provider override; use gitlab for self-hosted GitLab.",
         ),
     ] = None,
+    demo: Annotated[
+        bool,
+        typer.Option(
+            "--demo",
+            help="Add simulated npm, Python, and Docker steps (four seconds each).",
+        ),
+    ] = False,
 ) -> None:
     """Run applicable security checks on a local or remote repository."""
     if path is not None and repo is not None:
@@ -115,7 +132,11 @@ def static_analysis(
             typer.echo(f"Remote repository: {repo}")
         else:
             typer.echo(f"Local path: {target.local_path}")
-        report = analyze_repository(target)
+        steps: list[AnalysisStep] = [CICDAnalysis()]
+        if demo:
+            typer.echo("Demo mode: npm, Python, and Docker steps simulate work only.")
+            steps.extend(demo_steps())
+        report = run_with_progress(target, steps)
     except FileNotFoundError as error:
         typer.echo(
             f"Required executable unavailable: {error.filename}. Install Git.",
@@ -131,8 +152,13 @@ def static_analysis(
 
     for step in report.steps:
         result = step.result
+        step_name = typer.style(
+            f"[{step.name}]",
+            fg=STEP_COLORS.get(step.name, typer.colors.BLUE),
+            bold=True,
+        )
         typer.echo(
-            f"[{step.name}] {result.message}",
+            f"{step_name} {result.message}",
             err=result.status == AnalysisStatus.ERROR,
         )
         if result.stdout:
