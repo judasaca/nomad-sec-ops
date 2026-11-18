@@ -14,7 +14,7 @@ from nomad_sec_ops.cli import app
 from nomad_sec_ops.models import AnalysisStatus, CheckResult
 from nomad_sec_ops.repositories import RepositoryProvider, RepositoryTarget
 from nomad_sec_ops.scanners.gitlab import run_gitlab
-from nomad_sec_ops.scanners.gitlab.unpinned_images import UPSTREAM, UnpinnedImages
+from nomad_sec_ops.scanners.gitlab.rules.unpinned_images import UPSTREAM, UnpinnedImages
 
 DIGEST = "sha256:" + "a" * 64
 
@@ -23,7 +23,7 @@ def scan(tmp_path: Path, source: str, *, pedantic: bool = False) -> CheckResult:
     (tmp_path / ".gitlab-ci.yml").write_text(source)
     target = RepositoryTarget(tmp_path, None, RepositoryProvider.GITLAB)
     return run_gitlab(
-        target, rules=[UnpinnedImages(persona="pedantic" if pedantic else "regular")]
+        target, rules=[UnpinnedImages(persona="pedantic")] if pedantic else None
     )
 
 

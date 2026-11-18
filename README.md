@@ -145,9 +145,10 @@ without findings returns `0`. The scanner timeout is five minutes.
 The adapter implements GitLab equivalents of applicable zizmor checks.
 GitHub-specific checks need explicit GitLab semantics before implementation.
 
-Implement `GitLabRule` in `scanners/gitlab/` with a stable `name` and
-`run(context: GitLabContext) -> CheckResult`, then register the instance in
-`DEFAULT_RULES`. Use the corresponding zizmor identifier where semantics align.
+Implement `GitLabRule` in `scanners/gitlab/rules/` with a stable `name` and
+`run(context: GitLabContext) -> CheckResult`. Add the rule instance to
+`RULE_REGISTRY` in `scanners/gitlab/registry.py`, keyed by its upstream zizmor
+rule ID. The GitLab scanner and equivalence report use this registry by default.
 The context carries the full `RepositoryTarget`, including the host, project path,
 and optional local checkout. Rule results follow the shared status and exit code
 precedence; structured findings, evidence, and diagnostics are retained in adapter output.

@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from nomad_sec_ops.models import UpstreamRule
-from nomad_sec_ops.scanners.gitlab import DEFAULT_RULES, GitLabRule
+from nomad_sec_ops.scanners.gitlab.registry import RULE_REGISTRY, GitLabRule
 from nomad_sec_ops.scanners.zizmor_catalog import (
     AUDITS,
     ZIZMOR_COMMIT,
@@ -50,7 +50,7 @@ def build_equivalence_report(
     rules: Sequence[GitLabRule] | None = None,
 ) -> EquivalenceReport:
     """Count unique upstream IDs only when their versioned metadata matches."""
-    selected = DEFAULT_RULES if rules is None else rules
+    selected = RULE_REGISTRY.values() if rules is None else rules
     inventory = {audit.rule_id: audit for audit in AUDITS}
     implemented: set[str] = set()
     unmatched: list[str] = []

@@ -1,31 +1,19 @@
 """GitLab CI/CD adapter, shared by hosted and self-hosted GitLab instances."""
 
 from collections.abc import Sequence
-from typing import Protocol
 
 from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, CheckResult, StepResult
 from nomad_sec_ops.repositories import RepositoryTarget
 from nomad_sec_ops.scanners.gitlab.context import GitLabContext as GitLabContext
-from nomad_sec_ops.scanners.gitlab.unpinned_images import UnpinnedImages
-
-
-class GitLabRule(Protocol):
-    @property
-    def name(self) -> str:
-        """Stable check identifier, matching zizmor where semantics align."""
-        ...
-
-    def run(self, context: GitLabContext) -> CheckResult: ...
-
-
-DEFAULT_RULES: tuple[GitLabRule, ...] = (UnpinnedImages(),)
+from nomad_sec_ops.scanners.gitlab.registry import RULE_REGISTRY
+from nomad_sec_ops.scanners.gitlab.registry import GitLabRule as GitLabRule
 
 
 def run_gitlab(
     target: RepositoryTarget, *, rules: Sequence[GitLabRule] | None = None
 ) -> CheckResult:
     """Run the registered GitLab rules using the shared status contract."""
-    selected_rules = DEFAULT_RULES if rules is None else rules
+    selected_rules = RULE_REGISTRY.values() if rules is None else rules
     if not selected_rules:
         return CheckResult(
             status=AnalysisStatus.NOT_EVALUATED,

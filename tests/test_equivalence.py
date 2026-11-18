@@ -11,7 +11,8 @@ from nomad_sec_ops.cli import app
 from nomad_sec_ops.equivalence import build_equivalence_report
 from nomad_sec_ops.models import CheckResult, UpstreamRule
 from nomad_sec_ops.scanners.gitlab import GitLabContext
-from nomad_sec_ops.scanners.gitlab.unpinned_images import UPSTREAM, UnpinnedImages
+from nomad_sec_ops.scanners.gitlab.registry import RULE_REGISTRY
+from nomad_sec_ops.scanners.gitlab.rules.unpinned_images import UPSTREAM, UnpinnedImages
 from nomad_sec_ops.scanners.zizmor_catalog import AUDITS
 
 
@@ -39,6 +40,8 @@ def test_pinned_inventory() -> None:
     ("include_online", "total", "percentage"), [(False, 36, 2.78), (True, 41, 2.44)]
 )
 def test_default_coverage(include_online: bool, total: int, percentage: float) -> None:
+    assert isinstance(RULE_REGISTRY["unpinned-images"], UnpinnedImages)
+
     report = build_equivalence_report(include_online=include_online)
 
     assert report.total_count == total
