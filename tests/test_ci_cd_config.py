@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from nomad_sec_ops.steps.ci_cd_config import CONFIG_FILENAME, validate_ci_cd_config
+from nomad_sec_ops.steps.ci_cd.config import CONFIG_FILENAME, validate_ci_cd_config
 
 
 @pytest.mark.parametrize(

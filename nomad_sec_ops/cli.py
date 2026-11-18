@@ -13,7 +13,9 @@ from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
 from nomad_sec_ops.repositories import RepositoryProvider, resolve_target
 from nomad_sec_ops.steps import AnalysisStep
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
-from nomad_sec_ops.steps.demo import demo_steps
+from nomad_sec_ops.steps.docker import DockerAnalysis
+from nomad_sec_ops.steps.npm_dependencies import NpmDependencies
+from nomad_sec_ops.steps.python_dependencies import PythonDependencies
 
 app = typer.Typer(
     name="nomadsecops",
@@ -121,10 +123,11 @@ def static_analysis(
             typer.echo(f"Remote repository: {repo}")
         else:
             typer.echo(f"Local path: {target.local_path}")
-        steps: list[AnalysisStep] = [CICDAnalysis()]
+        steps: list[AnalysisStep] = []
         if demo:
             typer.echo("Demo mode: npm, Python, and Docker steps simulate work only.")
-            steps.extend(demo_steps())
+            steps.extend((NpmDependencies(), PythonDependencies(), DockerAnalysis()))
+        steps.append(CICDAnalysis())
         report = run_with_progress(target, steps)
     except FileNotFoundError as error:
         typer.echo(

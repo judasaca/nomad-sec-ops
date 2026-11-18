@@ -5,7 +5,7 @@ from nomad_sec_ops.repositories import RepositoryProvider, RepositoryTarget
 from nomad_sec_ops.scanners.gitlab import run_gitlab
 from nomad_sec_ops.scanners.zizmor import run_zizmor
 from nomad_sec_ops.steps import AnalysisStep
-from nomad_sec_ops.steps.ci_cd_config import CONFIG_FILENAME, validate_ci_cd_config
+from nomad_sec_ops.steps.ci_cd.config import CONFIG_FILENAME, validate_ci_cd_config
 
 
 class CICDAnalysis(AnalysisStep):

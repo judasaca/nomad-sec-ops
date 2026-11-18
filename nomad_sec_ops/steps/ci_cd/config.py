@@ -1,4 +1,4 @@
-"""Discover and validate the CI/CD rule settings for a local target."""
+"""Validate the optional CI/CD rule settings for a local target."""
 
 from pathlib import Path
 from stat import S_ISREG

@@ -12,7 +12,7 @@ from nomad_sec_ops.cli import app
 from nomad_sec_ops.models import AnalysisStatus, CheckResult
 from nomad_sec_ops.progress import run_with_progress
 from nomad_sec_ops.repositories import RepositoryTarget
-from nomad_sec_ops.steps.demo import DemoAnalysis
+from nomad_sec_ops.steps.docker import DockerAnalysis
 
 
 @pytest.mark.parametrize("demo", [False, True])
@@ -36,7 +36,7 @@ def test_demo_cli(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sleep = Mock()
-    monkeypatch.setattr("nomad_sec_ops.steps.demo.sleep", sleep)
+    monkeypatch.setattr("nomad_sec_ops.demo.sleep", sleep)
     monkeypatch.setattr(
         "nomad_sec_ops.steps.ci_cd.run_gitlab",
         Mock(return_value=CheckResult(status=status, message="CI/CD result")),
@@ -57,7 +57,9 @@ def test_demo_cli(
         assert sleep.call_args_list == [call(4.0)] * 3
         assert "Demo mode:" in result.output
         for name in ["npm-dependencies", "python-dependencies", "docker"]:
-            assert f"Running [{name}]" in result.stderr
+            assert result.stderr.index(f"[{name}] skipped") < result.stderr.index(
+                "Running [ci-cd]"
+            )
             assert f"[{name}] skipped" in result.stderr
             if color:
                 assert f"\x1b[90m\x1b[1m[{name}]" in result.stdout
@@ -73,7 +75,7 @@ def test_progress_with_step_failure(
     interactive: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sleep = Mock()
-    monkeypatch.setattr("nomad_sec_ops.steps.demo.sleep", sleep)
+    monkeypatch.setattr("nomad_sec_ops.demo.sleep", sleep)
     output = StringIO()
     console = Console(file=output, force_terminal=interactive, width=100)
 
@@ -85,7 +87,7 @@ def test_progress_with_step_failure(
 
     report = run_with_progress(
         RepositoryTarget(None, None),
-        [BrokenStep(), DemoAnalysis("docker", "Docker")],
+        [BrokenStep(), DockerAnalysis()],
         console=console,
     )
 
