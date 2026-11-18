@@ -1,12 +1,18 @@
 """Verify repository analysis independently of CLI and individual scanners."""
 
 from dataclasses import dataclass, field
+from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from nomad_sec_ops.analysis import analyze_repository
 from nomad_sec_ops.models import AnalysisStatus, CheckResult, StepResult
-from nomad_sec_ops.repositories import RemoteRepository, RepositoryTarget
+from nomad_sec_ops.repositories import (
+    RemoteRepository,
+    RepositoryProvider,
+    RepositoryTarget,
+)
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
 
 
@@ -67,6 +73,34 @@ def test_unknown_host_only_affects_ci_cd_step() -> None:
     assert report.steps[0].result.status == AnalysisStatus.NOT_EVALUATED
     assert next_step.calls == [target]
     assert report.exit_code == 3
+
+
+@pytest.mark.parametrize("provider", list(RepositoryProvider))
+def test_invalid_ci_cd_config_skips_scanners_and_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: RepositoryProvider
+) -> None:
+    path = tmp_path / "nomad-sec-ops-ci-cd.yml"
+    path.write_text("rules: {unknown-rule: {disable: false}}")
+    target = RepositoryTarget(
+        tmp_path, RemoteRepository(f"{provider.value}.com", "org/repo"), provider
+    )
+    github = Mock()
+    gitlab = Mock()
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", github)
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_gitlab", gitlab)
+    following = ExampleStep("following", AnalysisStatus.PASSED)
+
+    report = analyze_repository(target, steps=[CICDAnalysis(), following])
+
+    result = report.steps[0].result
+    assert result.status == AnalysisStatus.NOT_EVALUATED
+    assert "CI/CD skipped" in result.message
+    assert str(path) in result.stderr
+    assert "Unknown rule IDs 'unknown-rule'" in result.stderr
+    assert report.exit_code == 3
+    assert following.calls == [target]
+    github.assert_not_called()
+    gitlab.assert_not_called()
 
 
 def test_step_execution_error_does_not_stop_following_steps() -> None:
