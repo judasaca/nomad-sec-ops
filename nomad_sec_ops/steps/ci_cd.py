@@ -4,9 +4,10 @@ from nomad_sec_ops.models import AnalysisStatus, CheckResult
 from nomad_sec_ops.repositories import RepositoryProvider, RepositoryTarget
 from nomad_sec_ops.scanners.gitlab import run_gitlab
 from nomad_sec_ops.scanners.zizmor import run_zizmor
+from nomad_sec_ops.steps import AnalysisStep
 
 
-class CICDAnalysis:
+class CICDAnalysis(AnalysisStep):
     name = "ci-cd"
 
     def run(self, target: RepositoryTarget) -> CheckResult:

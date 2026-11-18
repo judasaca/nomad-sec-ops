@@ -13,9 +13,10 @@ from rich.progress import (
 )
 from rich.text import Text
 
-from nomad_sec_ops.analysis import AnalysisStep, analyze_repository
+from nomad_sec_ops.analysis import analyze_repository
 from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, StepResult
 from nomad_sec_ops.repositories import RepositoryTarget
+from nomad_sec_ops.steps import AnalysisStep
 
 STATUS_COLORS = {
     AnalysisStatus.PASSED: "green",

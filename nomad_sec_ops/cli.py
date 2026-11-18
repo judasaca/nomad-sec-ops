@@ -7,11 +7,11 @@ from typing import Annotated
 import typer
 
 from nomad_sec_ops import __version__
-from nomad_sec_ops.analysis import AnalysisStep
 from nomad_sec_ops.equivalence import build_equivalence_report
 from nomad_sec_ops.models import AnalysisStatus
 from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
 from nomad_sec_ops.repositories import RepositoryProvider, resolve_target
+from nomad_sec_ops.steps import AnalysisStep
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
 from nomad_sec_ops.steps.demo import demo_steps
 
