@@ -5,11 +5,13 @@ import subprocess
 from nomad_sec_ops.models import AnalysisStatus, CheckResult
 
 
-def run_zizmor(target: str) -> CheckResult:
+def run_zizmor(target: str, *, remote: bool = False) -> CheckResult:
+    network_mode = "--no-online-audits" if remote else "--offline"
     result = subprocess.run(
         [
             "zizmor",
             "--quiet",
+            network_mode,
             "--format=plain",
             "--gh-hostname=github.com",
             "--",

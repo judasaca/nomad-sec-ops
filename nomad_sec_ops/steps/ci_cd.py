@@ -26,9 +26,6 @@ class CICDAnalysis:
                 status=AnalysisStatus.NOT_EVALUATED,
                 message=f"CI/CD not evaluated: unsupported host {remote.host}.",
             )
-        scanner_target = (
-            str(target.local_path)
-            if target.local_path is not None
-            else remote.github_slug
-        )
-        return run_zizmor(scanner_target)
+        if target.local_path is not None:
+            return run_zizmor(str(target.local_path))
+        return run_zizmor(remote.github_slug, remote=True)

@@ -128,8 +128,13 @@ All step results are retained. Aggregate exit codes follow the precedence
 - Directories without a Git origin or an explicit provider, and unrecognized hosts:
   report the CI/CD step as not evaluated (`3`). Self-hosted GitHub is unsupported.
 
-Zizmor is installed by `uv sync`. Local scans work without credentials, using
-zizmor's offline mode; audits that need API access are unavailable in that mode.
+**Known limitation.** For simplicity, Nomad SecOps currently runs only offline
+CI/CD checks. We expect to support checks that require API access in a future
+release.
+
+Zizmor is installed by `uv sync`. Local scans use `--offline` and require no
+credentials. Remote GitHub scans use `--no-online-audits` and access the GitHub
+API to fetch the target repository.
 For remote scans, set `GH_TOKEN`, `GITHUB_TOKEN`, or `ZIZMOR_GITHUB_TOKEN` to a token
 with access to the target repository. Zizmor inherits these settings from the
 environment. See [zizmor operating modes](https://docs.zizmor.sh/usage/#operating-modes)

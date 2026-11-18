@@ -120,7 +120,7 @@ def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) 
     assert f"Remote repository: {repo}" in result.output
     assert "Local path:" not in result.output
     if "github.com" in repo:
-        scanner.assert_called_once_with("org/repo")
+        scanner.assert_called_once_with("org/repo", remote=True)
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()

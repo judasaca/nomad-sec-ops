@@ -179,20 +179,27 @@ def test_scanner_execution_errors(
     assert "Traceback" not in result.output
 
 
-def test_scanner_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("target", "remote", "network_mode"),
+    [("/local/repo", False, "--offline"), ("org/repo", True, "--no-online-audits")],
+)
+def test_scanner_arguments(
+    target: str, remote: bool, network_mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     process = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", process)
 
-    run_zizmor("org/repo")
+    run_zizmor(target, remote=remote)
 
     process.assert_called_once_with(
         [
             "zizmor",
             "--quiet",
+            network_mode,
             "--format=plain",
             "--gh-hostname=github.com",
             "--",
-            "org/repo",
+            target,
         ],
         capture_output=True,
         text=True,
@@ -220,7 +227,14 @@ def test_real_successful_offline_scan(
     )
     if has_warning:
         (workflows / "invalid.yml").write_text("invalid: [\n")
-    monkeypatch.setenv("ZIZMOR_OFFLINE", "true")
+    for name in (
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "ZIZMOR_GITHUB_TOKEN",
+        "ZIZMOR_OFFLINE",
+        "ZIZMOR_NO_ONLINE_AUDITS",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
@@ -228,6 +242,7 @@ def test_real_successful_offline_scan(
     assert "zizmor: no findings." in result.stdout
     assert "No findings to report." not in result.stdout
     assert "INFO" not in result.stderr
+    assert "running in offline mode by default" not in result.stderr
     assert ("failed to parse input" in result.stderr) == has_warning
 
 
