@@ -161,7 +161,9 @@ def static_analysis(
             f"{step_name} {result.message}",
             err=result.status == AnalysisStatus.ERROR,
         )
-        if result.stdout:
+        if result.stdout and not (
+            result.tool == "zizmor" and result.status == AnalysisStatus.PASSED
+        ):
             typer.echo(result.stdout, nl=False)
         if result.stderr:
             typer.echo(result.stderr, nl=False, err=True)

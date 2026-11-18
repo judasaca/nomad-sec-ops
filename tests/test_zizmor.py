@@ -90,7 +90,10 @@ def test_local_dispatch(
     monkeypatch.chdir(tmp_path)
     scanner = Mock(
         return_value=CheckResult(
-            status=AnalysisStatus.PASSED, message="zizmor", stdout="audit output\n"
+            status=AnalysisStatus.PASSED,
+            message="zizmor",
+            tool="zizmor",
+            stdout="audit output\n",
         )
     )
     monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
@@ -103,7 +106,7 @@ def test_local_dispatch(
     assert result.exit_code == (0 if host == "github.com" else 3)
     if host == "github.com":
         scanner.assert_called_once_with(str(tmp_path.resolve()))
-        assert "audit output" in result.output
+        assert "audit output" not in result.output
     else:
         scanner.assert_not_called()
         assert "No .gitlab-ci.yml found" in result.output
@@ -151,7 +154,7 @@ def test_scanner_exit_codes(
     )
 
     assert result.exit_code == expected
-    assert "scanner stdout" in result.stdout
+    assert ("scanner stdout" in result.stdout) == (scanner_code != 0)
     assert "scanner stderr" in result.stderr
 
 
@@ -183,12 +186,49 @@ def test_scanner_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     run_zizmor("org/repo")
 
     process.assert_called_once_with(
-        ["zizmor", "--format=plain", "--gh-hostname=github.com", "--", "org/repo"],
+        [
+            "zizmor",
+            "--quiet",
+            "--format=plain",
+            "--gh-hostname=github.com",
+            "--",
+            "org/repo",
+        ],
         capture_output=True,
         text=True,
         timeout=300,
         check=False,
     )
+
+
+@pytest.mark.parametrize("has_warning", [False, True])
+def test_real_successful_offline_scan(
+    has_warning: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path, "https://github.com/org/repo.git")
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text(
+        "name: Test\n"
+        "on: [push]\n"
+        "permissions: {}\n"
+        "jobs:\n"
+        "  test:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: echo ok\n"
+    )
+    if has_warning:
+        (workflows / "invalid.yml").write_text("invalid: [\n")
+    monkeypatch.setenv("ZIZMOR_OFFLINE", "true")
+
+    result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "zizmor: no findings." in result.stdout
+    assert "No findings to report." not in result.stdout
+    assert "INFO" not in result.stderr
+    assert ("failed to parse input" in result.stderr) == has_warning
 
 
 def test_real_offline_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,7 +7,14 @@ from nomad_sec_ops.models import AnalysisStatus, CheckResult
 
 def run_zizmor(target: str) -> CheckResult:
     result = subprocess.run(
-        ["zizmor", "--format=plain", "--gh-hostname=github.com", "--", target],
+        [
+            "zizmor",
+            "--quiet",
+            "--format=plain",
+            "--gh-hostname=github.com",
+            "--",
+            target,
+        ],
         capture_output=True,
         text=True,
         timeout=300,
