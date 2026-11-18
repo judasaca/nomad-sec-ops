@@ -45,8 +45,7 @@ zizmor rules have a registered GitLab equivalent, run:
 uv run nomadsecops equivalence --details
 ```
 
-The coverage report defaults to offline rules. Use `--all` to include online
-rules in the inventory or `--json` for structured output.
+The coverage report covers offline rules. Use `--json` for structured output.
 
 ### Exit codes
 

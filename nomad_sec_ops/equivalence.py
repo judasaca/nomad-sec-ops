@@ -35,7 +35,7 @@ class EquivalenceReport(BaseModel):
     upstream_version: str = ZIZMOR_VERSION
     upstream_commit: str = ZIZMOR_COMMIT
     inventory_source_url: str = f"{ZIZMOR_SOURCE_ROOT}/crates/zizmor/src/registry.rs"
-    scope: Literal["offline", "all"]
+    scope: Literal["offline"] = "offline"
     implemented_count: int
     total_count: int
     percentage: float
@@ -46,7 +46,6 @@ class EquivalenceReport(BaseModel):
 
 def build_equivalence_report(
     *,
-    include_online: bool = False,
     rules: Sequence[GitLabRule] | None = None,
 ) -> EquivalenceReport:
     """Count unique upstream IDs only when their versioned metadata matches."""
@@ -75,11 +74,10 @@ def build_equivalence_report(
             source_url=audit.source_url,
         )
         for audit in AUDITS
-        if include_online or audit.offline
+        if audit.offline
     ]
     count = sum(rule.implemented for rule in coverage)
     return EquivalenceReport(
-        scope="all" if include_online else "offline",
         implemented_count=count,
         total_count=len(coverage),
         percentage=round(100 * count / len(coverage), 2) if coverage else 0.0,

@@ -36,17 +36,15 @@ def test_pinned_inventory() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("include_online", "total", "percentage"), [(False, 36, 2.78), (True, 41, 2.44)]
-)
-def test_default_coverage(include_online: bool, total: int, percentage: float) -> None:
+def test_offline_coverage() -> None:
     assert isinstance(RULE_REGISTRY["unpinned-images"], UnpinnedImages)
 
-    report = build_equivalence_report(include_online=include_online)
+    report = build_equivalence_report()
 
-    assert report.total_count == total
+    assert report.total_count == 36
     assert report.implemented_count == 1
-    assert report.percentage == percentage
+    assert report.percentage == 2.78
+    assert all(rule.offline for rule in report.rules)
     assert [rule.rule_id for rule in report.rules if rule.implemented] == [
         "unpinned-images"
     ]
@@ -81,7 +79,7 @@ def test_mismatched_mapping_is_excluded(changes: dict[str, str]) -> None:
     assert report.unmatched_implementations == [rule.name]
 
 
-def test_online_mapping_only_counts_in_all_scope() -> None:
+def test_online_mapping_does_not_count() -> None:
     audit = next(audit for audit in AUDITS if not audit.offline)
     upstream = UPSTREAM.model_copy(
         update={
@@ -91,11 +89,10 @@ def test_online_mapping_only_counts_in_all_scope() -> None:
     )
     rule = MappedRule(upstream)
 
-    assert build_equivalence_report(rules=[rule]).implemented_count == 0
-    assert (
-        build_equivalence_report(rules=[rule], include_online=True).implemented_count
-        == 1
-    )
+    report = build_equivalence_report(rules=[rule])
+
+    assert report.implemented_count == 0
+    assert audit.rule_id not in {rule.rule_id for rule in report.rules}
 
 
 def test_cli_is_independent_of_git_and_scanners(
@@ -113,14 +110,21 @@ def test_cli_is_independent_of_git_and_scanners(
     process.assert_not_called()
 
 
-def test_cli_all_with_details() -> None:
-    result = CliRunner().invoke(app, ["equivalence", "--all", "--details"])
+def test_cli_offline_details() -> None:
+    result = CliRunner().invoke(app, ["equivalence", "--details"])
 
     assert result.exit_code == 0
-    assert "Rule coverage: 2.44% (1/41)" in result.output
+    assert "Rule coverage: 2.78% (1/36)" in result.output
     assert "  implemented: unpinned-images" in result.output
-    assert "  missing: ref-version-mismatch" in result.output
-    assert result.output.count("  missing:") == 40
+    assert "ref-version-mismatch" not in result.output
+    assert result.output.count("  missing:") == 35
+
+
+def test_cli_rejects_all_option() -> None:
+    result = CliRunner().invoke(app, ["equivalence", "--all"])
+
+    assert result.exit_code == 2
+    assert "No such option: --all" in result.output
 
 
 def test_cli_json() -> None:

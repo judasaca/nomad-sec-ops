@@ -35,10 +35,6 @@ def main(
 
 @app.command("equivalence")
 def equivalence(
-    include_online: Annotated[
-        bool,
-        typer.Option("--all", help="Include online zizmor rules in the inventory."),
-    ] = False,
     details: Annotated[
         bool, typer.Option("--details", help="List implemented and missing rule IDs.")
     ] = False,
@@ -46,8 +42,8 @@ def equivalence(
         bool, typer.Option("--json", help="Emit the full report as JSON.")
     ] = False,
 ) -> None:
-    """Report GitLab rule coverage against pinned zizmor (offline by default)."""
-    report = build_equivalence_report(include_online=include_online)
+    """Report GitLab rule coverage against offline zizmor rules."""
+    report = build_equivalence_report()
     if json_output:
         typer.echo(report.model_dump_json(indent=2))
         return
