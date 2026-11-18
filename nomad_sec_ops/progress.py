@@ -17,10 +17,10 @@ from nomad_sec_ops.analysis import AnalysisStep, analyze_repository
 from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, StepResult
 from nomad_sec_ops.repositories import RepositoryTarget
 
-STATUS_STYLES = {
+STATUS_COLORS = {
     AnalysisStatus.PASSED: "green",
     AnalysisStatus.FINDINGS: "yellow",
-    AnalysisStatus.SKIPPED: "dim",
+    AnalysisStatus.SKIPPED: "bright_black",
     AnalysisStatus.NOT_EVALUATED: "yellow",
     AnalysisStatus.ERROR: "red",
 }
@@ -59,7 +59,7 @@ def run_with_progress(
             console.print(
                 Text(
                     f"[{step.name}] {step.result.status.value}",
-                    style=STATUS_STYLES[step.result.status],
+                    style=STATUS_COLORS[step.result.status],
                 )
             )
 

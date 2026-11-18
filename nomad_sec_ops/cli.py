@@ -10,7 +10,7 @@ from nomad_sec_ops import __version__
 from nomad_sec_ops.analysis import AnalysisStep
 from nomad_sec_ops.equivalence import build_equivalence_report
 from nomad_sec_ops.models import AnalysisStatus
-from nomad_sec_ops.progress import run_with_progress
+from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
 from nomad_sec_ops.repositories import RepositoryProvider, resolve_target
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
 from nomad_sec_ops.steps.demo import demo_steps
@@ -21,13 +21,6 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
-
-STEP_COLORS = {
-    "ci-cd": typer.colors.MAGENTA,
-    "npm-dependencies": typer.colors.GREEN,
-    "python-dependencies": typer.colors.YELLOW,
-    "docker": typer.colors.CYAN,
-}
 
 
 @app.callback(invoke_without_command=True)
@@ -154,7 +147,7 @@ def static_analysis(
         result = step.result
         step_name = typer.style(
             f"[{step.name}]",
-            fg=STEP_COLORS.get(step.name, typer.colors.BLUE),
+            fg=STATUS_COLORS[result.status],
             bold=True,
         )
         typer.echo(

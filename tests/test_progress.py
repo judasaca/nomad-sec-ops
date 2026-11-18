@@ -16,18 +16,22 @@ from nomad_sec_ops.steps.demo import DemoAnalysis
 
 
 @pytest.mark.parametrize("demo", [False, True])
+@pytest.mark.parametrize("color", [False, True])
 @pytest.mark.parametrize(
-    ("status", "exit_code"),
+    ("status", "exit_code", "ansi_color"),
     [
-        (AnalysisStatus.PASSED, 0),
-        (AnalysisStatus.FINDINGS, 1),
-        (AnalysisStatus.ERROR, 2),
+        (AnalysisStatus.PASSED, 0, 32),
+        (AnalysisStatus.FINDINGS, 1, 33),
+        (AnalysisStatus.NOT_EVALUATED, 3, 33),
+        (AnalysisStatus.ERROR, 2, 31),
     ],
 )
 def test_demo_cli(
     demo: bool,
+    color: bool,
     status: AnalysisStatus,
     exit_code: int,
+    ansi_color: int,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -41,17 +45,22 @@ def test_demo_cli(
     if demo:
         args.append("--demo")
 
-    result = CliRunner().invoke(app, args)
+    result = CliRunner().invoke(app, args, color=color)
 
     assert result.exit_code == exit_code
     assert "Running [ci-cd]" in result.stderr
-    assert "\x1b[" not in result.output
+    if color:
+        assert f"\x1b[{ansi_color}m\x1b[1m[ci-cd]" in result.output
+    else:
+        assert "\x1b[" not in result.output
     if demo:
         assert sleep.call_args_list == [call(4.0)] * 3
         assert "Demo mode:" in result.output
         for name in ["npm-dependencies", "python-dependencies", "docker"]:
             assert f"Running [{name}]" in result.stderr
             assert f"[{name}] skipped" in result.stderr
+            if color:
+                assert f"\x1b[90m\x1b[1m[{name}]" in result.stdout
         assert result.stdout.count("No security scan performed.") == 3
     else:
         sleep.assert_not_called()
