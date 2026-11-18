@@ -1,7 +1,7 @@
-"""Collect image declarations from a local GitLab pipeline without network I/O.
+"""Parse local GitLab CI configuration for offline rules.
 
-Use YAML nodes rather than constructing Python objects, retaining source marks
-and allowing unrelated GitLab-specific YAML tags such as !reference.
+YAML nodes preserve source locations and allow GitLab-specific tags such as
+!reference to be represented in the parsed configuration.
 """
 
 from dataclasses import dataclass
@@ -40,6 +40,7 @@ class PipelineImages:
 
 
 def collect_images(path: Path) -> PipelineImages:
+    """Collect image and service declarations and record parsing limitations."""
     references: list[ImageReference] = []
     limitations: list[str] = []
     try:
