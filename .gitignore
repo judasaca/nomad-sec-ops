@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Temporary Nomad SecOps repository checkouts
+.nomad-sec-ops-checkouts/

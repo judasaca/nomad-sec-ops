@@ -103,28 +103,101 @@ def test_relative_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    "repo",
-    ["https://github.com/org/repo.git", "git@gitlab.com:org/repo.git"],
+    ("repo", "label", "provider"),
+    [
+        ("https://github.com/org/repo.git", "github.com/org/repo.git", None),
+        ("git@gitlab.com:org/repo.git", "gitlab.com/org/repo.git", None),
+        (
+            "ssh://git@code.example.org:2222/group/subgroup/repo.git",
+            "code.example.org/group/subgroup/repo.git",
+            "gitlab",
+        ),
+    ],
 )
 @pytest.mark.parametrize("option", ["--repo", "-r"])
-def test_remote_target(option: str, repo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("valid_config", [True, False])
+def test_remote_target(
+    option: str,
+    repo: str,
+    label: str,
+    provider: str | None,
+    valid_config: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    checkouts: list[Path] = []
+
+    def clone(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        assert command[:3] == ["git", "clone", "--depth=1"]
+        assert command[-2] == repo
+        checkout = Path(command[-1])
+        checkout.mkdir()
+        checkouts.append(checkout)
+        (checkout / ".gitlab-ci.yml").write_text("build: {script: [echo ok]}")
+        config = "rules: {}" if valid_config else "rules: {typo: {disable: true}}"
+        (checkout / "nomad-sec-ops-ci-cd.yml").write_text(config)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("nomad_sec_ops.repositories.subprocess.run", clone)
     scanner = Mock(
         return_value=CheckResult(
             status=AnalysisStatus.PASSED, message="zizmor", stdout="audit output\n"
         )
     )
     monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
-    result = runner.invoke(app, ["static-analysis", option, repo])
+    args = ["static-analysis", option, repo]
+    if provider is not None:
+        args.extend(("--provider", provider))
 
-    assert result.exit_code == (0 if "github.com" in repo else 3)
-    assert f"Remote repository: {repo}" in result.output
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == (0 if valid_config else 3)
+    assert f"Remote repository: {label}" in result.output
     assert "Local path:" not in result.output
-    if "github.com" in repo:
-        scanner.assert_called_once_with("org/repo", remote=True)
+    assert len(checkouts) == 1
+    root = tmp_path / ".nomad-sec-ops-checkouts"
+    assert checkouts[0].is_relative_to(root)
+    assert list(root.iterdir()) == [root / ".gitignore"]
+    assert (root / ".gitignore").read_text() == "*\n"
+    if not valid_config:
+        scanner.assert_not_called()
+        assert "Unknown rule IDs 'typo'" in result.stderr
+        assert "CI/CD skipped" in result.output
+    elif "github.com" in repo:
+        scanner.assert_called_once_with(str(checkouts[0]))
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()
-        assert "Offline rule requires a local checkout" in result.output
+        assert "GitLab CI/CD: 1 rule(s) completed (passed)." in result.output
+
+
+def test_failed_download_cleans_up_and_skips_scanning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def clone(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        Path(command[-1]).mkdir()
+        return subprocess.CompletedProcess(command, 128)
+
+    monkeypatch.setattr("nomad_sec_ops.repositories.subprocess.run", clone)
+    scanner = Mock()
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
+
+    result = runner.invoke(
+        app, ["static-analysis", "--repo", "https://github.com/org/repo.git"]
+    )
+
+    assert result.exit_code == 2
+    assert "Could not download github.com/org/repo.git" in result.stderr
+    root = tmp_path / ".nomad-sec-ops-checkouts"
+    assert list(root.iterdir()) == [root / ".gitignore"]
+    scanner.assert_not_called()
 
 
 def test_conflicting_targets(tmp_path: Path) -> None:

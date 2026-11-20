@@ -14,7 +14,7 @@ Nomad ecosystem.
 
 | Target | Available checks |
 | --- | --- |
-| GitHub.com | GitHub Actions audits via zizmor on a local checkout or remote repository. Remote scans fetch repository content through the GitHub API. |
+| GitHub.com | GitHub Actions audits via zizmor on a local checkout. |
 | GitLab.com and self-hosted GitLab | The offline `unpinned-images` check reads `.gitlab-ci.yml` in a local checkout. |
 
 Local scans require no credentials.
@@ -34,8 +34,10 @@ uv run nomadsecops static-analysis --repo https://github.com/org/repo.git
 
 With neither `--path` nor `--repo`, the command scans the current directory.
 Use `--provider gitlab` for self-hosted GitLab or a local GitLab checkout without an
-origin. For remote GitHub scans, set `GH_TOKEN`, `GITHUB_TOKEN`, or
-`ZIZMOR_GITHUB_TOKEN` to a token with access to the repository.
+origin. For `--repo`, Nomad SecOps shallow-clones the default branch of a
+supported repository into `.nomad-sec-ops-checkouts/` under the current working
+directory. Git ignores this directory, and Nomad SecOps removes the checkout
+after the scan. Private repositories use your Git HTTPS or SSH credentials.
 
 Add `--demo` to preview the Python, npm, and Docker steps. To see which
 zizmor rules have a registered GitLab equivalent, run:
@@ -48,9 +50,9 @@ Use `--json` for structured output.
 
 ### CI/CD settings
 
-For local scans, Nomad SecOps looks for an optional `nomad-sec-ops-ci-cd.yml`
-in the selected directory. The settings use zizmor rule IDs and accept a boolean
-`disable` field for each listed rule.
+Nomad SecOps looks for an optional `nomad-sec-ops-ci-cd.yml` in the directory
+being scanned, including a downloaded checkout. The settings use zizmor rule IDs
+and accept a boolean `disable` field for each listed rule.
 
 ```yaml
 rules:
@@ -75,15 +77,17 @@ When outcomes are combined, precedence is `2`, then `1`, then `3`, then `0`.
 
 ## Known limitations
 
-- Both scanners run offline audits only, even when a GitHub scan fetches
-  repository files remotely. The equivalence report covers offline zizmor rules.
-- Remote scans support GitHub.com. Remote GitLab targets and unsupported hosts
-  are reported as not evaluated.
+- Both scanners run offline audits only. The equivalence report covers offline
+  zizmor rules.
+- Remote scans support GitHub.com, GitLab.com, and self-hosted GitLab with
+  `--provider gitlab`. Unsupported hosts are reported as not evaluated.
+- Remote checkouts use the tip of the default branch and skip submodules. Git
+  checks out symbolic links as plain files containing their link text.
 - The GitLab image-pinning check reads declarations from the local
   `.gitlab-ci.yml`. It does not resolve included files, YAML merge keys,
   `!reference` tags, or image references that depend on CI/CD variables.
-- CI/CD settings are discovered for local scans only. The step validates the
-  settings file before scanning. Applying rule overrides is a later step.
+- The CI/CD step validates the settings file before scanning. Applying rule
+  overrides is a later step.
 - PyYAML silently keeps the last value for a duplicate key, so earlier values are
   discarded before validation. Duplicate-key detection could be added through an
   upstream fix or a separate verification step.

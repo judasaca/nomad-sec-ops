@@ -31,14 +31,14 @@ class CICDAnalysis(AnalysisStep):
                 status=AnalysisStatus.NOT_EVALUATED,
                 message="CI/CD not evaluated: no Git origin identifies the host.",
             )
-        if (
-            target.hosting_provider != RepositoryProvider.GITHUB
-            or remote.host != "github.com"
-        ):
+        if target.hosting_provider != RepositoryProvider.GITHUB:
             return CheckResult(
                 status=AnalysisStatus.NOT_EVALUATED,
                 message=f"CI/CD not evaluated: unsupported host {remote.host}.",
             )
         if target.local_path is not None:
             return run_zizmor(str(target.local_path))
-        return run_zizmor(remote.github_slug, remote=True)
+        return CheckResult(
+            status=AnalysisStatus.NOT_EVALUATED,
+            message="CI/CD not evaluated: GitHub checks require a local checkout.",
+        )

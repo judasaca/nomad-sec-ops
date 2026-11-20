@@ -1,10 +1,14 @@
-"""Identify the hosting service of local and remote repositories."""
+"""Identify repositories and prepare local checkouts for analysis."""
 
+import os
 import re
 import subprocess
-from dataclasses import dataclass
+from collections.abc import Generator
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
 
@@ -38,6 +42,10 @@ class RepositoryTarget:
 
     @property
     def hosting_provider(self) -> RepositoryProvider | None:
+        if self.provider == RepositoryProvider.GITHUB and (
+            self.remote is None or self.remote.host != "github.com"
+        ):
+            return None
         if self.provider is not None:
             return self.provider
         if self.remote is not None:
@@ -48,21 +56,73 @@ class RepositoryTarget:
         return None
 
 
+@contextmanager
 def resolve_target(
     path: Path | None = None,
     repo: str | None = None,
     provider: RepositoryProvider | None = None,
-) -> RepositoryTarget:
+) -> Generator[RepositoryTarget]:
+    """Keep the checkout available for the lifetime of an analysis run."""
     if path is not None and repo is not None:
         raise ValueError("--path and --repo cannot be used together.")
     if repo is not None:
-        return RepositoryTarget(
-            local_path=None, remote=parse_remote(repo), provider=provider
-        )
+        remote = parse_remote(repo)
+        target = RepositoryTarget(local_path=None, remote=remote, provider=provider)
+        if target.hosting_provider is None:
+            yield target
+            return
+        with checkout_repository(repo, remote) as local_path:
+            yield replace(target, local_path=local_path)
+        return
+
     local_path = (path if path is not None else Path.cwd()).resolve()
-    return RepositoryTarget(
-        local_path=local_path, remote=local_remote(local_path), provider=provider
-    )
+    yield RepositoryTarget(local_path, local_remote(local_path), provider)
+
+
+@contextmanager
+def checkout_repository(url: str, remote: RemoteRepository) -> Generator[Path]:
+    root = Path.cwd() / ".nomad-sec-ops-checkouts"
+    root.mkdir(mode=0o700, exist_ok=True)
+    # Keep downloads ignored in directories outside the Nomad SecOps source repo too.
+    with (
+        suppress(FileExistsError),
+        (root / ".gitignore").open("x", encoding="utf-8") as ignore,
+    ):
+        ignore.write("*\n")
+
+    label = f"{remote.host}/{remote.path}"
+    with TemporaryDirectory(dir=root) as directory:
+        checkout = Path(directory) / "repo"
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--depth=1",
+                    "--no-tags",
+                    "--no-recurse-submodules",
+                    "--config=core.symlinks=false",
+                    "--",
+                    url,
+                    str(checkout),
+                ],
+                capture_output=True,
+                timeout=300,
+                check=False,
+                env={
+                    **os.environ,
+                    "GIT_TERMINAL_PROMPT": "0",
+                    "GIT_ALLOW_PROTOCOL": "http:https:ssh:git",
+                },
+            )
+        except subprocess.TimeoutExpired as error:
+            raise ValueError(f"Repository download timed out for {label}.") from error
+        if result.returncode != 0:
+            raise ValueError(
+                f"Could not download {label} (Git exit code {result.returncode}). "
+                "Check the repository URL and your Git credentials."
+            )
+        yield checkout
 
 
 def parse_remote(url: str) -> RemoteRepository:

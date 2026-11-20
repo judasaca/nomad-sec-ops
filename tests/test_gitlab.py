@@ -39,22 +39,13 @@ def test_gitlab_dispatch(
     zizmor.assert_not_called()
 
 
-@pytest.mark.parametrize("local", [False, True])
-def test_self_hosted_cli(local: bool, tmp_path: Path) -> None:
-    args = ["static-analysis", "--provider", "gitlab"]
-    args.extend(
-        ["--path", str(tmp_path)]
-        if local
-        else ["--repo", "ssh://git@code.example.org:2222/group/subgroup/repo.git"]
+def test_self_hosted_cli(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        app, ["static-analysis", "--provider", "gitlab", "--path", str(tmp_path)]
     )
-
-    result = CliRunner().invoke(app, args)
 
     assert result.exit_code == 3
-    expected = (
-        "No .gitlab-ci.yml found" if local else "Offline rule requires a local checkout"
-    )
-    assert expected in result.output
+    assert "No .gitlab-ci.yml found" in result.output
 
 
 def test_invalid_provider() -> None:

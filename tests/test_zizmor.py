@@ -62,8 +62,6 @@ def test_invalid_urls(url: str) -> None:
 @pytest.mark.parametrize(
     ("url", "expected_code"),
     [
-        ("https://gitlab.com/group/subgroup/repo.git", 3),
-        ("git@gitlab.com:group/repo.git", 3),
         ("https://github.com.example.org/org/repo.git", 3),
         ("https://github.com@example.org/org/repo.git", 3),
         ("https://gitlab.example.org/group/repo.git", 3),
@@ -74,11 +72,14 @@ def test_non_github_does_not_run_scanner(
 ) -> None:
     scanner = Mock()
     monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
+    download = Mock()
+    monkeypatch.setattr("nomad_sec_ops.repositories.checkout_repository", download)
 
     result = runner.invoke(app, ["static-analysis", "--repo", url])
 
     assert result.exit_code == expected_code
     scanner.assert_not_called()
+    download.assert_not_called()
 
 
 @pytest.mark.parametrize("host", ["github.com", "gitlab.com"])
@@ -140,18 +141,17 @@ def test_missing_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     [(0, 0), (11, 1), (12, 1), (13, 1), (14, 1), (1, 2), (2, 2), (3, 3), (-9, 2)],
 )
 def test_scanner_exit_codes(
-    scanner_code: int, expected: int, monkeypatch: pytest.MonkeyPatch
+    scanner_code: int, expected: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    create_repository(tmp_path, "https://github.com/org/repo.git")
     scanner = Mock(
         return_value=subprocess.CompletedProcess(
             [], scanner_code, "scanner stdout\n", "scanner stderr\n"
         )
     )
-    monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", scanner)
+    monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess", Mock(run=scanner))
 
-    result = runner.invoke(
-        app, ["static-analysis", "--repo", "https://github.com/org/repo.git"]
-    )
+    result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
     assert result.exit_code == expected
     assert ("scanner stdout" in result.stdout) == (scanner_code != 0)
@@ -167,39 +167,32 @@ def test_scanner_exit_codes(
     ],
 )
 def test_scanner_execution_errors(
-    error: Exception, monkeypatch: pytest.MonkeyPatch
+    error: Exception, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    create_repository(tmp_path, "https://github.com/org/repo.git")
     monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", Mock(side_effect=error))
 
-    result = runner.invoke(
-        app, ["static-analysis", "--repo", "https://github.com/org/repo.git"]
-    )
+    result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
     assert result.exit_code == 2
     assert "Traceback" not in result.output
 
 
-@pytest.mark.parametrize(
-    ("target", "remote", "network_mode"),
-    [("/local/repo", False, "--offline"), ("org/repo", True, "--no-online-audits")],
-)
-def test_scanner_arguments(
-    target: str, remote: bool, network_mode: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scanner_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     process = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", process)
 
-    run_zizmor(target, remote=remote)
+    run_zizmor("/local/repo")
 
     process.assert_called_once_with(
         [
             "zizmor",
             "--quiet",
-            network_mode,
+            "--offline",
             "--format=plain",
             "--gh-hostname=github.com",
             "--",
-            target,
+            "/local/repo",
         ],
         capture_output=True,
         text=True,

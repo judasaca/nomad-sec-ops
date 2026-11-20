@@ -118,17 +118,23 @@ def static_analysis(
                 "Repository URL cannot be empty.", param_hint="--repo"
             )
     try:
-        target = resolve_target(path=path, repo=repo, provider=provider)
-        if repo is not None:
-            typer.echo(f"Remote repository: {repo}")
-        else:
-            typer.echo(f"Local path: {target.local_path}")
-        steps: list[AnalysisStep] = []
-        if demo:
-            typer.echo("Demo mode: npm, Python, and Docker steps simulate work only.")
-            steps.extend((NpmDependencies(), PythonDependencies(), DockerAnalysis()))
-        steps.append(CICDAnalysis())
-        report = run_with_progress(target, steps)
+        with resolve_target(path=path, repo=repo, provider=provider) as target:
+            if repo is not None and target.remote is not None:
+                typer.echo(
+                    f"Remote repository: {target.remote.host}/{target.remote.path}"
+                )
+            else:
+                typer.echo(f"Local path: {target.local_path}")
+            steps: list[AnalysisStep] = []
+            if demo:
+                typer.echo(
+                    "Demo mode: npm, Python, and Docker steps simulate work only."
+                )
+                steps.extend(
+                    (NpmDependencies(), PythonDependencies(), DockerAnalysis())
+                )
+            steps.append(CICDAnalysis())
+            report = run_with_progress(target, steps)
     except FileNotFoundError as error:
         typer.echo(
             f"Required executable unavailable: {error.filename}. Install Git.",
