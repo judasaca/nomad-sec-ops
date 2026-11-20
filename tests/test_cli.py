@@ -137,7 +137,8 @@ def test_remote_target(
         checkout.mkdir()
         checkouts.append(checkout)
         (checkout / ".gitlab-ci.yml").write_text("build: {script: [echo ok]}")
-        config = "rules: {}" if valid_config else "rules: {typo: {disable: true}}"
+        rule_id = "template-injection" if valid_config else "typo"
+        config = f"rules: {{{rule_id}: {{disable: true}}}}"
         (checkout / "nomad-sec-ops-ci-cd.yml").write_text(config)
         return subprocess.CompletedProcess(command, 0)
 
@@ -167,7 +168,9 @@ def test_remote_target(
         assert "Unknown rule IDs 'typo'" in result.stderr
         assert "CI/CD skipped" in result.output
     elif "github.com" in repo:
-        scanner.assert_called_once_with(str(checkouts[0]))
+        scanner.assert_called_once_with(
+            str(checkouts[0]), config_path=checkouts[0] / "nomad-sec-ops-ci-cd.yml"
+        )
         assert "audit output" in result.output
     else:
         scanner.assert_not_called()

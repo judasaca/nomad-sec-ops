@@ -33,14 +33,14 @@ class CICDSettings(BaseModel):
         return rules
 
 
-def validate_ci_cd_config(path: Path) -> None:
-    """Validate an optional settings file without applying rule overrides."""
+def resolve_ci_cd_config(path: Path) -> Path | None:
+    """Return the validated settings path if the optional file exists."""
     try:
         mode = path.stat().st_mode
     except FileNotFoundError:
         if path.is_symlink():
             raise
-        return
+        return None
     if not S_ISREG(mode):
         raise ValueError("Expected a regular file.")
 
@@ -54,3 +54,4 @@ def validate_ci_cd_config(path: Path) -> None:
         raise ValueError("YAML is nested too deeply.") from error
 
     CICDSettings.model_validate(data)
+    return path

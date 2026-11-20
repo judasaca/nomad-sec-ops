@@ -60,9 +60,14 @@ rules:
     disable: true
 ```
 
-Omit the file or use `rules: {}` to leave all applicable rules enabled. If the
-file is unreadable or invalid, the CI/CD step is reported as not evaluated with
-a warning, and any other analysis steps continue.
+For GitHub Actions, `disable: true` skips the named zizmor audit. Omit the file or
+use `rules: {}` to leave all applicable audits enabled. Nomad SecOps passes the
+validated file directly to zizmor. Use YAML syntax compatible with zizmor. The
+scan ignores repository `zizmor.yml` files, `ZIZMOR_CONFIG`, and inline zizmor
+ignore comments.
+
+If the file is unreadable or invalid, the CI/CD step is reported as not evaluated
+with a warning, and any other analysis steps continue.
 
 ### Exit codes
 
@@ -86,8 +91,8 @@ When outcomes are combined, precedence is `2`, then `1`, then `3`, then `0`.
 - The GitLab image-pinning check reads declarations from the local
   `.gitlab-ci.yml`. It does not resolve included files, YAML merge keys,
   `!reference` tags, or image references that depend on CI/CD variables.
-- The CI/CD step validates the settings file before scanning. Applying rule
-  overrides is a later step.
+- GitLab CI validates the settings file. Rule overrides currently apply to
+  GitHub Actions.
 - PyYAML silently keeps the last value for a duplicate key, so earlier values are
   discarded before validation. Duplicate-key detection could be added through an
   upstream fix or a separate verification step.

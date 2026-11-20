@@ -1,11 +1,19 @@
 """GitHub CI/CD scanner adapter; no repository-wide orchestration lives here."""
 
+import os
 import subprocess
+from pathlib import Path
 
 from nomad_sec_ops.models import AnalysisStatus, CheckResult
 
 
-def run_zizmor(target: str) -> CheckResult:
+def run_zizmor(target: str, *, config_path: Path | None = None) -> CheckResult:
+    config_args = (
+        ["--no-config"] if config_path is None else ["--config", str(config_path)]
+    )
+    env = os.environ.copy()
+    # zizmor treats ZIZMOR_CONFIG as --config, which conflicts with --no-config.
+    env.pop("ZIZMOR_CONFIG", None)
     result = subprocess.run(
         [
             "zizmor",
@@ -13,9 +21,12 @@ def run_zizmor(target: str) -> CheckResult:
             "--offline",
             "--format=plain",
             "--gh-hostname=github.com",
+            *config_args,
+            "--no-ignores",
             "--",
             target,
         ],
+        env=env,
         capture_output=True,
         text=True,
         timeout=300,

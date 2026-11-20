@@ -106,7 +106,7 @@ def test_local_dispatch(
 
     assert result.exit_code == (0 if host == "github.com" else 3)
     if host == "github.com":
-        scanner.assert_called_once_with(str(tmp_path.resolve()))
+        scanner.assert_called_once_with(str(tmp_path.resolve()), config_path=None)
         assert "audit output" not in result.output
     else:
         scanner.assert_not_called()
@@ -178,27 +178,31 @@ def test_scanner_execution_errors(
     assert "Traceback" not in result.output
 
 
-def test_scanner_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("has_config", [False, True])
+def test_scanner_arguments(
+    has_config: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "nomad-sec-ops-ci-cd.yml" if has_config else None
+    config_args = ["--config", str(config_path)] if has_config else ["--no-config"]
     process = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", process)
+    monkeypatch.setenv("ZIZMOR_CONFIG", "/unrelated/zizmor.yml")
 
-    run_zizmor("/local/repo")
+    run_zizmor("/local/repo", config_path=config_path)
 
-    process.assert_called_once_with(
-        [
-            "zizmor",
-            "--quiet",
-            "--offline",
-            "--format=plain",
-            "--gh-hostname=github.com",
-            "--",
-            "/local/repo",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        check=False,
-    )
+    process.assert_called_once()
+    assert process.call_args.args[0] == [
+        "zizmor",
+        "--quiet",
+        "--offline",
+        "--format=plain",
+        "--gh-hostname=github.com",
+        *config_args,
+        "--no-ignores",
+        "--",
+        "/local/repo",
+    ]
+    assert process.call_args.kwargs["env"].get("ZIZMOR_CONFIG") is None
 
 
 @pytest.mark.parametrize("has_warning", [False, True])
@@ -239,22 +243,47 @@ def test_real_successful_offline_scan(
     assert ("failed to parse input" in result.stderr) == has_warning
 
 
-def test_real_offline_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("disable", [None, False, True])
+@pytest.mark.parametrize("external_config", [False, True])
+def test_real_offline_scan(
+    disable: bool | None,
+    external_config: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     create_repository(tmp_path, "https://github.com/org/repo.git")
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
     (workflows / "ci.yml").write_text(
         "name: Unsafe workflow\n"
         "on: pull_request_target\n"
+        "permissions: {}\n"
         "jobs:\n"
         "  example:\n"
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
-        "      - run: echo '${{ github.event.pull_request.title }}'\n"
+        "      - run: echo '${{ github.event.pull_request.title }}'"
+        " # zizmor: ignore[template-injection]\n"
     )
+    (workflows.parent / "zizmor.yml").write_text(
+        "rules:\n"
+        "  template-injection: {disable: true}\n"
+        "  dangerous-triggers: {disable: true}\n"
+    )
+    if external_config:
+        external_path = tmp_path / "external-zizmor.yml"
+        external_path.write_text("malformed: [")
+        monkeypatch.setenv("ZIZMOR_CONFIG", str(external_path))
+    else:
+        monkeypatch.delenv("ZIZMOR_CONFIG", raising=False)
+    if disable is not None:
+        (tmp_path / "nomad-sec-ops-ci-cd.yml").write_text(
+            f"rules: {{template-injection: {{disable: {str(disable).lower()}}}}}"
+        )
     monkeypatch.setenv("ZIZMOR_OFFLINE", "true")
 
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
-    assert result.exit_code == 1
-    assert "template-injection" in result.output
+    assert result.exit_code == 1, result.output
+    assert "dangerous-triggers" in result.output
+    assert ("template-injection" in result.output) == (not disable)

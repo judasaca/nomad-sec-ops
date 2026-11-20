@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from nomad_sec_ops.steps.ci_cd.config import CONFIG_FILENAME, validate_ci_cd_config
+from nomad_sec_ops.steps.ci_cd.config import CONFIG_FILENAME, resolve_ci_cd_config
 
 
 @pytest.mark.parametrize(
@@ -22,7 +22,7 @@ def test_valid_config(tmp_path: Path, content: str) -> None:
     path = tmp_path / CONFIG_FILENAME
     path.write_text(content, encoding="utf-8")
 
-    validate_ci_cd_config(path)
+    assert resolve_ci_cd_config(path) == path
 
 
 @pytest.mark.parametrize(
@@ -55,4 +55,4 @@ def test_invalid_config(tmp_path: Path, content: str, error: str) -> None:
     path.write_text(content, encoding="utf-8")
 
     with pytest.raises(ValueError, match=error):
-        validate_ci_cd_config(path)
+        resolve_ci_cd_config(path)
