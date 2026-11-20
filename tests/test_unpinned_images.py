@@ -175,6 +175,41 @@ def test_clean_offline_cli(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "equivalent: zizmor/unpinned-images@1.32.0" in result.output
+    assert (
+        "Total findings: 0 (High: 0, Medium: 0, Low: 0, Informational: 0)"
+        in result.stdout
+    )
+    assert "High severity" not in result.stdout
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_cli_findings(tmp_path: Path, verbose: bool) -> None:
+    (tmp_path / ".gitlab-ci.yml").write_text(
+        "include: other.yml\nimage: ubuntu\nservices: [redis:latest]\n"
+    )
+    args = ["static-analysis", "--path", str(tmp_path), "--provider", "gitlab"]
+    if verbose:
+        args.append("-v")
+
+    result = CliRunner().invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "Total findings: 2 (High: 2, Medium: 0, Low: 0, Informational: 0)" in (
+        result.stdout
+    )
+    assert result.stdout.count("High severity") == 1
+    assert "include files are not resolved" in result.stderr
+    for line in (
+        ".gitlab-ci.yml:2: container image is unpinned",
+        ".gitlab-ci.yml:3: container image uses the floating 'latest' tag",
+    ):
+        assert (f"{line}  {UPSTREAM.documentation_url}" in result.stdout) == (
+            not verbose
+        )
+    assert ("high[unpinned-images]" in result.stdout) == verbose
+    assert ("confidence: high" in result.stdout) == verbose
+    assert ("image: ubuntu" in result.stdout) == verbose
+    assert ("fix: Pin the image" in result.stdout) == verbose
 
 
 @pytest.mark.parametrize("persona", ["regular", "pedantic"])

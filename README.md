@@ -43,6 +43,11 @@ repositories use your Git HTTPS or SSH credentials.
 
 The scan logs the checkout's branch and short HEAD commit before the checks
 start. Local scans read the working tree, including any uncommitted changes.
+By default, each finding shows the file, line number, short message, and link
+to the upstream rule documentation. Both output modes group findings from high
+to informational severity and show the total and per-severity counts. Terminals
+display severity headings and counts in color. Use `--verbose` or `-v` to see
+details such as evidence and suggested fixes.
 
 Add `--demo` to preview the Python, npm, and Docker steps. To see which
 zizmor rules have a registered GitLab equivalent, run:

@@ -141,8 +141,13 @@ def test_missing_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     ("scanner_code", "expected"),
     [(0, 0), (11, 1), (12, 1), (13, 1), (14, 1), (1, 2), (2, 2), (3, 3), (-9, 2)],
 )
+@pytest.mark.parametrize("verbose", [False, True])
 def test_scanner_exit_codes(
-    scanner_code: int, expected: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    scanner_code: int,
+    expected: int,
+    verbose: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     create_repository(tmp_path, "https://github.com/org/repo.git")
     finding = {
@@ -177,11 +182,24 @@ def test_scanner_exit_codes(
     )
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess", Mock(run=scanner))
 
-    result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
+    args = ["static-analysis", "--path", str(tmp_path)]
+    if verbose:
+        args.append("--verbose")
+    result = runner.invoke(app, args)
 
     assert result.exit_code == expected
     assert ("scanner stdout" in result.stdout) == (expected in {2, 3})
-    assert ("action.yml:1:1: high[unpinned-uses]" in result.stdout) == (expected == 1)
+    assert f"Total findings: {int(expected == 1)}" in result.stdout
+    compact = (
+        "action.yml:1: unpinned action reference: pin this action  "
+        "https://docs.zizmor.sh/audits/#unpinned-uses"
+    )
+    assert (compact in result.stdout) == (expected == 1 and not verbose)
+    assert ("action.yml:1:1: high[unpinned-uses]" in result.stdout) == (
+        expected == 1 and verbose
+    )
+    assert ("scanner evidence" in result.stdout) == (expected == 1 and verbose)
+    assert ("fix:" in result.stdout) == (expected == 1 and verbose)
     assert "scanner stderr" in result.stderr
 
 

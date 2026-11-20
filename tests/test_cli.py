@@ -10,7 +10,14 @@ from typer.testing import CliRunner
 
 from nomad_sec_ops import __version__
 from nomad_sec_ops.cli import app
-from nomad_sec_ops.models import AnalysisStatus, CheckResult
+from nomad_sec_ops.models import (
+    AnalysisReport,
+    AnalysisStatus,
+    CheckResult,
+    Finding,
+    StepResult,
+)
+from nomad_sec_ops.scanners.gitlab.rules.unpinned_images import UPSTREAM
 
 runner = CliRunner()
 
@@ -69,6 +76,95 @@ def test_target_help() -> None:
     assert "--repo" in result.output
     assert "--branch" in result.output
     assert "Local project directory." in result.output
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("color", [False, True])
+def test_findings_grouped_across_steps(
+    verbose: bool, color: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    finding = Finding(
+        rule_id=UPSTREAM.rule_id,
+        severity="high",
+        confidence="high",
+        persona="regular",
+        file="high-first.yml",
+        line=1,
+        column=1,
+        location="image",
+        message="Example finding",
+        evidence="",
+        remediation="Use an immutable digest.",
+        upstream=UPSTREAM,
+    )
+    steps = [
+        StepResult(
+            name="first",
+            result=CheckResult(
+                status=AnalysisStatus.FINDINGS,
+                message="First check",
+                findings=[
+                    finding.model_copy(update={"severity": "low", "file": "low.yml"}),
+                    finding,
+                ],
+            ),
+        ),
+        StepResult(
+            name="second",
+            result=CheckResult(
+                status=AnalysisStatus.FINDINGS,
+                message="Second check",
+                findings=[
+                    finding.model_copy(
+                        update={"severity": "medium", "file": "medium.yml"}
+                    ),
+                    finding.model_copy(update={"file": "high-second.yml"}),
+                    finding.model_copy(
+                        update={"severity": "informational", "file": "info.yml"}
+                    ),
+                ],
+            ),
+        ),
+    ]
+    monkeypatch.setattr(
+        "nomad_sec_ops.cli._run_static_analysis",
+        Mock(return_value=AnalysisReport(steps=steps)),
+    )
+
+    args = ["static-analysis", "--verbose"] if verbose else ["static-analysis"]
+    result = runner.invoke(app, args, color=color)
+
+    assert result.exit_code == 1
+    expected = [
+        "High severity",
+        "high-first.yml:1",
+        "high-second.yml:1",
+        "Medium severity",
+        "medium.yml:1",
+        "Low severity",
+        "low.yml:1",
+        "Informational severity",
+        "info.yml:1",
+        "Total findings: 5",
+    ]
+    offsets = [result.stdout.index(item) for item in expected]
+    assert offsets == sorted(offsets)
+    assert result.stdout.count("High severity") == 1
+    if color:
+        for ansi, label, count in [
+            (31, "High", 2),
+            (33, "Medium", 1),
+            (36, "Low", 1),
+            (94, "Informational", 1),
+        ]:
+            assert f"\x1b[{ansi}m\x1b[1m{label} severity" in result.stdout
+            assert f"\x1b[{ansi}m\x1b[1m{label}: {count}" in result.stdout
+    else:
+        assert "\x1b[" not in result.stdout
+        assert (
+            "Total findings: 5 (High: 2, Medium: 1, Low: 1, Informational: 1)"
+            in result.stdout
+        )
 
 
 def test_default_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

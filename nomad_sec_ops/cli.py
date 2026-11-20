@@ -8,7 +8,7 @@ import typer
 from nomad_sec_ops import __version__
 from nomad_sec_ops.analysis import AnalysisError, _run_static_analysis
 from nomad_sec_ops.equivalence import build_equivalence_report
-from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, RepositoryInfo
+from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, Finding, RepositoryInfo
 from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
 from nomad_sec_ops.repositories import (
     DEFAULT_CHECKOUT_ROOT,
@@ -28,6 +28,56 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+SEVERITY_COLORS = {
+    "high": "red",
+    "medium": "yellow",
+    "low": "cyan",
+    "informational": "bright_blue",
+}
+
+
+def _show_findings(report: AnalysisReport, *, verbose: bool) -> None:
+    groups: dict[str, list[tuple[Finding, str | None]]] = {
+        severity: [] for severity in SEVERITY_COLORS
+    }
+    for step in report.steps:
+        for finding in step.result.findings:
+            groups[finding.severity].append((finding, step.result.tool))
+
+    counts = []
+    for severity, findings in groups.items():
+        color = SEVERITY_COLORS[severity]
+        label = severity.capitalize()
+        counts.append(typer.style(f"{label}: {len(findings)}", fg=color, bold=True))
+        if not findings:
+            continue
+        heading = typer.style(f"{label} severity", fg=color, bold=True)
+        typer.echo(f"\n{heading}")
+        for finding, tool in findings:
+            if verbose:
+                details = (
+                    f" ({finding.location}; confidence: {finding.confidence})"
+                    if tool == "gitlab-ci"
+                    else ""
+                )
+                typer.echo(
+                    f"{finding.file}:{finding.line}:{finding.column}: "
+                    f"{severity}[{finding.rule_id}] {finding.message}{details}"
+                )
+                if finding.evidence:
+                    evidence_label = "image: " if tool == "gitlab-ci" else ""
+                    typer.echo(f"  {evidence_label}{finding.evidence}")
+                typer.echo(f"  fix: {finding.remediation}")
+            else:
+                message = " ".join(finding.message.split())
+                typer.echo(
+                    f"{finding.file}:{finding.line}: {message}  "
+                    f"{finding.upstream.documentation_url}"
+                )
+
+    total = sum(len(findings) for findings in groups.values())
+    typer.echo(f"Total findings: {total} ({', '.join(counts)})")
 
 
 @app.callback(invoke_without_command=True)
@@ -114,6 +164,12 @@ def static_analysis(
             help="Add simulated npm, Python, and Docker steps (four seconds each).",
         ),
     ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Show detailed findings and scanner output."
+        ),
+    ] = False,
 ) -> None:
     """Run applicable security checks on a local or remote repository."""
 
@@ -164,19 +220,14 @@ def static_analysis(
             f"{step_name} {result.message}",
             err=result.status == AnalysisStatus.ERROR,
         )
-        if result.stdout and not (
-            result.tool == "zizmor" and result.status == AnalysisStatus.PASSED
+        # GitLab includes preformatted findings in stdout.
+        if (
+            result.stdout
+            and (not result.findings or (verbose and result.tool != "gitlab-ci"))
+            and not (result.tool == "zizmor" and result.status == AnalysisStatus.PASSED)
         ):
             typer.echo(result.stdout, nl=False)
-        if result.tool == "zizmor":
-            for finding in result.findings:
-                typer.echo(
-                    f"{finding.file}:{finding.line}:{finding.column}: "
-                    f"{finding.severity}[{finding.rule_id}] {finding.message}"
-                )
-                if finding.evidence:
-                    typer.echo(f"  {finding.evidence}")
-                typer.echo(f"  fix: {finding.remediation}")
         if result.stderr:
             typer.echo(result.stderr, nl=False, err=True)
+    _show_findings(report, verbose=verbose)
     raise typer.Exit(report.exit_code)
