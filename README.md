@@ -30,14 +30,16 @@ uv run nomadsecops static-analysis
 uv run nomadsecops static-analysis --path /path/to/project
 uv run nomadsecops static-analysis --path /path/to/checkout --provider gitlab
 uv run nomadsecops static-analysis --repo https://github.com/org/repo.git
+uv run nomadsecops static-analysis --repo https://github.com/org/repo.git --branch ci-cd-security
 ```
 
 With neither `--path` nor `--repo`, the command scans the current directory.
 Use `--provider gitlab` for self-hosted GitLab or a local GitLab checkout without an
-origin. For `--repo`, Nomad SecOps shallow-clones the default branch of a
-supported repository into `.nomad-sec-ops-checkouts/` under the current working
-directory. Git ignores this directory, and Nomad SecOps removes the checkout
-after the scan. Private repositories use your Git HTTPS or SSH credentials.
+origin. For `--repo`, Nomad SecOps shallow-clones the default branch unless you
+select a branch with `--branch`. The checkout goes into
+`.nomad-sec-ops-checkouts/` under the current working directory. Git ignores
+this directory, and Nomad SecOps removes the checkout after the scan. Private
+repositories use your Git HTTPS or SSH credentials.
 
 Add `--demo` to preview the Python, npm, and Docker steps. To see which
 zizmor rules have a registered GitLab equivalent, run:
@@ -86,8 +88,8 @@ When outcomes are combined, precedence is `2`, then `1`, then `3`, then `0`.
   zizmor rules.
 - Remote scans support GitHub.com, GitLab.com, and self-hosted GitLab with
   `--provider gitlab`. Unsupported hosts are reported as not evaluated.
-- Remote checkouts use the tip of the default branch and skip submodules. Git
-  checks out symbolic links as plain files containing their link text.
+- Remote checkouts skip submodules. Git checks out symbolic links as plain files
+  containing their link text.
 - The GitLab image-pinning check reads declarations from the local
   `.gitlab-ci.yml`. It does not resolve included files, YAML merge keys,
   `!reference` tags, or image references that depend on CI/CD variables.

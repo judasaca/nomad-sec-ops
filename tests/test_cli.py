@@ -67,6 +67,7 @@ def test_target_help() -> None:
     assert result.exit_code == 0
     assert "--path" in result.output
     assert "--repo" in result.output
+    assert "--branch" in result.output
     assert "Local project directory." in result.output
 
 
@@ -116,12 +117,14 @@ def test_relative_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 )
 @pytest.mark.parametrize("option", ["--repo", "-r"])
 @pytest.mark.parametrize("valid_config", [True, False])
+@pytest.mark.parametrize("branch", [None, "feature/ci-cd-security"])
 def test_remote_target(
     option: str,
     repo: str,
     label: str,
     provider: str | None,
     valid_config: bool,
+    branch: str | None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -133,6 +136,8 @@ def test_remote_target(
     ) -> subprocess.CompletedProcess[bytes]:
         assert command[:3] == ["git", "clone", "--depth=1"]
         assert command[-2] == repo
+        branch_args = [option for option in command if option.startswith("--branch")]
+        assert branch_args == ([] if branch is None else [f"--branch={branch}"])
         checkout = Path(command[-1])
         checkout.mkdir()
         checkouts.append(checkout)
@@ -152,11 +157,15 @@ def test_remote_target(
     args = ["static-analysis", option, repo]
     if provider is not None:
         args.extend(("--provider", provider))
+    if branch is not None:
+        args.extend(("--branch", branch))
 
     result = runner.invoke(app, args)
 
     assert result.exit_code == (0 if valid_config else 3)
     assert f"Remote repository: {label}" in result.output
+    if branch is not None:
+        assert f"Branch: {branch}" in result.output
     assert "Local path:" not in result.output
     assert len(checkouts) == 1
     root = tmp_path / ".nomad-sec-ops-checkouts"
@@ -177,8 +186,9 @@ def test_remote_target(
         assert "GitLab CI/CD: 1 rule(s) completed (passed)." in result.output
 
 
+@pytest.mark.parametrize("branch", [None, "missing-branch"])
 def test_failed_download_cleans_up_and_skips_scanning(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    branch: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -192,12 +202,15 @@ def test_failed_download_cleans_up_and_skips_scanning(
     scanner = Mock()
     monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
 
-    result = runner.invoke(
-        app, ["static-analysis", "--repo", "https://github.com/org/repo.git"]
-    )
+    args = ["static-analysis", "--repo", "https://github.com/org/repo.git"]
+    if branch is not None:
+        args.extend(("--branch", branch))
+    result = runner.invoke(app, args)
 
     assert result.exit_code == 2
     assert "Could not download github.com/org/repo.git" in result.stderr
+    if branch is not None:
+        assert f"branch {branch!r}" in result.stderr
     root = tmp_path / ".nomad-sec-ops-checkouts"
     assert list(root.iterdir()) == [root / ".gitignore"]
     scanner.assert_not_called()
@@ -217,6 +230,31 @@ def test_conflicting_targets(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "cannot be used together" in result.output
+
+
+def test_branch_requires_remote_target(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["static-analysis", "--path", str(tmp_path), "--branch", "ci-cd-security"]
+    )
+
+    assert result.exit_code == 2
+    assert "--branch requires --repo" in result.output
+
+
+def test_empty_branch() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "static-analysis",
+            "--repo",
+            "https://github.com/org/repo.git",
+            "--branch",
+            "",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Branch name cannot be empty" in result.output
 
 
 @pytest.mark.parametrize("target_kind", ["missing", "file"])

@@ -61,6 +61,8 @@ def resolve_target(
     path: Path | None = None,
     repo: str | None = None,
     provider: RepositoryProvider | None = None,
+    *,
+    branch: str | None = None,
 ) -> Generator[RepositoryTarget]:
     """Keep the checkout available for the lifetime of an analysis run."""
     if path is not None and repo is not None:
@@ -71,7 +73,7 @@ def resolve_target(
         if target.hosting_provider is None:
             yield target
             return
-        with checkout_repository(repo, remote) as local_path:
+        with checkout_repository(repo, remote, branch=branch) as local_path:
             yield replace(target, local_path=local_path)
         return
 
@@ -80,7 +82,9 @@ def resolve_target(
 
 
 @contextmanager
-def checkout_repository(url: str, remote: RemoteRepository) -> Generator[Path]:
+def checkout_repository(
+    url: str, remote: RemoteRepository, *, branch: str | None = None
+) -> Generator[Path]:
     root = Path.cwd() / ".nomad-sec-ops-checkouts"
     root.mkdir(mode=0o700, exist_ok=True)
     # Keep downloads ignored in directories outside the Nomad SecOps source repo too.
@@ -91,6 +95,10 @@ def checkout_repository(url: str, remote: RemoteRepository) -> Generator[Path]:
         ignore.write("*\n")
 
     label = f"{remote.host}/{remote.path}"
+    branch_args: list[str] = []
+    if branch is not None:
+        label += f" at branch {branch!r}"
+        branch_args = [f"--branch={branch}"]
     with TemporaryDirectory(dir=root) as directory:
         checkout = Path(directory) / "repo"
         try:
@@ -102,6 +110,7 @@ def checkout_repository(url: str, remote: RemoteRepository) -> Generator[Path]:
                     "--no-tags",
                     "--no-recurse-submodules",
                     "--config=core.symlinks=false",
+                    *branch_args,
                     "--",
                     url,
                     str(checkout),
@@ -120,7 +129,7 @@ def checkout_repository(url: str, remote: RemoteRepository) -> Generator[Path]:
         if result.returncode != 0:
             raise ValueError(
                 f"Could not download {label} (Git exit code {result.returncode}). "
-                "Check the repository URL and your Git credentials."
+                "Check the repository URL, branch, and your Git credentials."
             )
         yield checkout
 

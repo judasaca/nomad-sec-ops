@@ -93,6 +93,13 @@ def static_analysis(
             help="Remote Git repository URL (HTTPS or SSH). Exclusive with --path.",
         ),
     ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Branch to scan with --repo. Defaults to the remote default branch.",
+        ),
+    ] = None,
     provider: Annotated[
         RepositoryProvider | None,
         typer.Option(
@@ -112,17 +119,29 @@ def static_analysis(
     if path is not None and repo is not None:
         raise typer.BadParameter("--path and --repo cannot be used together.")
 
+    if branch is not None:
+        if repo is None:
+            raise typer.BadParameter("--branch requires --repo.", param_hint="--branch")
+        if not branch.strip():
+            raise typer.BadParameter(
+                "Branch name cannot be empty.", param_hint="--branch"
+            )
+
     if repo is not None:
         if not repo.strip():
             raise typer.BadParameter(
                 "Repository URL cannot be empty.", param_hint="--repo"
             )
     try:
-        with resolve_target(path=path, repo=repo, provider=provider) as target:
+        with resolve_target(
+            path=path, repo=repo, provider=provider, branch=branch
+        ) as target:
             if repo is not None and target.remote is not None:
                 typer.echo(
                     f"Remote repository: {target.remote.host}/{target.remote.path}"
                 )
+                if branch is not None:
+                    typer.echo(f"Branch: {branch}")
             else:
                 typer.echo(f"Local path: {target.local_path}")
             steps: list[AnalysisStep] = []
