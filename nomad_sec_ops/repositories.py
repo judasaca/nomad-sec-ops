@@ -134,6 +134,28 @@ def checkout_repository(
         yield checkout
 
 
+def checkout_revision(path: Path) -> tuple[str | None, str | None]:
+    """Read the current branch and abbreviated HEAD, when available."""
+
+    def git_output(*args: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(path), *args],
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    ref = git_output("symbolic-ref", "--quiet", "HEAD")
+    commit = git_output("rev-parse", "--verify", "--short", "HEAD")
+    return ref.removeprefix("refs/heads/") if ref else None, commit
+
+
 def parse_remote(url: str) -> RemoteRepository:
     """Parse HTTPS, SSH, Git transport, and SCP-style Git remote URLs."""
     if any(character.isspace() for character in url):

@@ -10,7 +10,11 @@ from nomad_sec_ops import __version__
 from nomad_sec_ops.equivalence import build_equivalence_report
 from nomad_sec_ops.models import AnalysisStatus
 from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
-from nomad_sec_ops.repositories import RepositoryProvider, resolve_target
+from nomad_sec_ops.repositories import (
+    RepositoryProvider,
+    checkout_revision,
+    resolve_target,
+)
 from nomad_sec_ops.steps import AnalysisStep
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
 from nomad_sec_ops.steps.docker import DockerAnalysis
@@ -140,10 +144,17 @@ def static_analysis(
                 typer.echo(
                     f"Remote repository: {target.remote.host}/{target.remote.path}"
                 )
-                if branch is not None:
-                    typer.echo(f"Branch: {branch}")
             else:
                 typer.echo(f"Local path: {target.local_path}")
+            checked_out_branch, commit = (
+                checkout_revision(target.local_path)
+                if target.local_path is not None
+                else (None, None)
+            )
+            if checked_out_branch is None:
+                checked_out_branch = "detached HEAD" if commit else "unavailable"
+            typer.echo(f"Branch: {checked_out_branch}")
+            typer.echo(f"Commit: {commit or 'unavailable'}")
             steps: list[AnalysisStep] = []
             if demo:
                 typer.echo(

@@ -41,6 +41,9 @@ select a branch with `--branch`. The checkout goes into
 this directory, and Nomad SecOps removes the checkout after the scan. Private
 repositories use your Git HTTPS or SSH credentials.
 
+The scan logs the checkout's branch and short HEAD commit before the checks
+start. Local scans read the working tree, including any uncommitted changes.
+
 Add `--demo` to preview the Python, npm, and Docker steps. To see which
 zizmor rules have a registered GitLab equivalent, run:
 

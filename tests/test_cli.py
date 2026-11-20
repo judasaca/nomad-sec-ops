@@ -78,6 +78,8 @@ def test_default_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
 
     assert result.exit_code == 3
     assert f"Local path: {tmp_path.resolve()}" in result.output
+    assert "Branch: unavailable" in result.output
+    assert "Commit: unavailable" in result.output
     assert "no Git origin" in result.output
 
 
@@ -101,6 +103,48 @@ def test_relative_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
     assert result.exit_code == 3
     assert f"Local path: {target.resolve()}" in result.output
+
+
+@pytest.mark.parametrize("checkout", ["branch", "detached", "unborn"])
+def test_local_revision_header(tmp_path: Path, checkout: str) -> None:
+    git = ["git", "-C", str(tmp_path)]
+    subprocess.run(
+        [*git, "init", "--quiet", "--initial-branch=feature/security"],
+        check=True,
+        timeout=10,
+    )
+    commit = "unavailable"
+    if checkout != "unborn":
+        subprocess.run(
+            [
+                *git,
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.org",
+                "commit",
+                "--allow-empty",
+                "--quiet",
+                "-m",
+                "Initial commit",
+            ],
+            check=True,
+            timeout=10,
+        )
+        commit = subprocess.check_output(
+            [*git, "rev-parse", "--short", "HEAD"], text=True, timeout=10
+        ).strip()
+    if checkout == "detached":
+        subprocess.run(
+            [*git, "checkout", "--quiet", "--detach"], check=True, timeout=10
+        )
+
+    result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
+
+    branch = "detached HEAD" if checkout == "detached" else "feature/security"
+    assert result.exit_code == 3
+    assert f"Branch: {branch}" in result.output
+    assert result.output.index(f"Commit: {commit}") < result.output.index("Running")
 
 
 @pytest.mark.parametrize(
@@ -131,9 +175,16 @@ def test_remote_target(
     monkeypatch.chdir(tmp_path)
     checkouts: list[Path] = []
 
-    def clone(
+    def run_git(
         command: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[bytes]:
+    ) -> subprocess.CompletedProcess[str]:
+        if command[1] == "-C":
+            assert Path(command[2]) == checkouts[0]
+            if command[3] == "symbolic-ref":
+                ref = f"refs/heads/{branch or 'main'}\n"
+                return subprocess.CompletedProcess(command, 0, stdout=ref)
+            assert command[3:] == ["rev-parse", "--verify", "--short", "HEAD"]
+            return subprocess.CompletedProcess(command, 0, stdout="a1b2c3d\n")
         assert command[:3] == ["git", "clone", "--depth=1"]
         assert command[-2] == repo
         branch_args = [option for option in command if option.startswith("--branch")]
@@ -147,7 +198,7 @@ def test_remote_target(
         (checkout / "nomad-sec-ops-ci-cd.yml").write_text(config)
         return subprocess.CompletedProcess(command, 0)
 
-    monkeypatch.setattr("nomad_sec_ops.repositories.subprocess.run", clone)
+    monkeypatch.setattr("nomad_sec_ops.repositories.subprocess.run", run_git)
     scanner = Mock(
         return_value=CheckResult(
             status=AnalysisStatus.PASSED, message="zizmor", stdout="audit output\n"
@@ -164,8 +215,8 @@ def test_remote_target(
 
     assert result.exit_code == (0 if valid_config else 3)
     assert f"Remote repository: {label}" in result.output
-    if branch is not None:
-        assert f"Branch: {branch}" in result.output
+    assert f"Branch: {branch or 'main'}" in result.output
+    assert result.output.index("Commit: a1b2c3d") < result.output.index("Running")
     assert "Local path:" not in result.output
     assert len(checkouts) == 1
     root = tmp_path / ".nomad-sec-ops-checkouts"
