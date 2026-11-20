@@ -64,6 +64,7 @@ workflow:
     assert first.evidence == "ubuntu"
     assert first.rule_id == first.upstream.rule_id == "unpinned-images"
     assert first.upstream == UPSTREAM
+    assert UPSTREAM.commit is not None and first.upstream.source_url is not None
     assert UPSTREAM.commit in first.upstream.source_url
     assert first.severity == "high"
     assert first.confidence == "high"

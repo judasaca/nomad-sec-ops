@@ -1,13 +1,95 @@
 """GitHub CI/CD scanner adapter; no repository-wide orchestration lives here."""
 
+import json
 import os
 import subprocess
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
-from nomad_sec_ops.models import AnalysisStatus, CheckResult
+from nomad_sec_ops.models import AnalysisStatus, CheckResult, Finding, UpstreamRule
+from nomad_sec_ops.scanners.zizmor_catalog import AUDITS, ZIZMOR_COMMIT, ZIZMOR_VERSION
+
+
+def _zizmor_executable() -> tuple[str, str | None]:
+    """Use the installed wheel's executable even when its scripts dir is off PATH."""
+    try:
+        package = distribution("zizmor")
+    except PackageNotFoundError:
+        return "zizmor", None
+    for file in package.files or ():
+        if file.name in {"zizmor", "zizmor.exe"}:
+            executable = package.locate_file(file)
+            if isinstance(executable, Path) and executable.is_file():
+                return str(executable.resolve()), package.version
+    return "zizmor", None
+
+
+def _parse_findings(output: str, directory: Path, version: str | None) -> list[Finding]:
+    records = json.loads(output)
+    if not isinstance(records, list) or not records:
+        raise ValueError("expected a nonempty array of findings")
+    catalog = {audit.rule_id: audit for audit in AUDITS}
+    findings: list[Finding] = []
+    for record in records:
+        primary = next(
+            (
+                item
+                for item in record["locations"]
+                if item["symbolic"]["kind"] == "Primary"
+            ),
+            None,
+        )
+        if primary is None:
+            raise ValueError("finding has no primary location")
+        symbolic, concrete = primary["symbolic"], primary["concrete"]
+        file = Path(symbolic["key"]["Local"]["verbatim_path"]).absolute()
+        point = concrete["location"]["start_point"]
+        location = ""
+        for segment in symbolic["route"]["route"]:
+            if "Index" in segment:
+                location += f"[{segment['Index']}]"
+            else:
+                location += f".{segment['Key']}" if location else segment["Key"]
+
+        rule_id = record["ident"]
+        audit = catalog.get(rule_id) if version == ZIZMOR_VERSION else None
+        documentation_url = record["url"]
+        message = record["desc"]
+        if symbolic["annotation"] and symbolic["annotation"] != message:
+            message += f": {symbolic['annotation']}"
+        determinations = record["determinations"]
+        fixes = record.get("fixes", [])
+        findings.append(
+            Finding(
+                rule_id=rule_id,
+                severity=determinations["severity"].lower(),
+                confidence=determinations["confidence"].lower(),
+                persona=determinations["persona"].lower(),
+                file=file.relative_to(directory).as_posix(),
+                line=point["row"] + 1,
+                column=point["column"] + 1,
+                location=location,
+                message=message,
+                evidence=concrete["feature"].strip(),
+                remediation=(
+                    "; ".join(fix["title"] for fix in fixes)
+                    or f"See {documentation_url}"
+                ),
+                upstream=UpstreamRule(
+                    tool="zizmor",
+                    rule_id=rule_id,
+                    version=version,
+                    commit=ZIZMOR_COMMIT if audit is not None else None,
+                    source_url=audit.source_url if audit is not None else None,
+                    documentation_url=documentation_url,
+                ),
+            )
+        )
+    return findings
 
 
 def run_zizmor(target: str, *, config_path: Path | None = None) -> CheckResult:
+    executable, version = _zizmor_executable()
     config_args = (
         ["--no-config"] if config_path is None else ["--config", str(config_path)]
     )
@@ -16,10 +98,10 @@ def run_zizmor(target: str, *, config_path: Path | None = None) -> CheckResult:
     env.pop("ZIZMOR_CONFIG", None)
     result = subprocess.run(
         [
-            "zizmor",
+            executable,
             "--quiet",
             "--offline",
-            "--format=plain",
+            "--format=json-v1",
             "--gh-hostname=github.com",
             *config_args,
             "--no-ignores",
@@ -32,12 +114,21 @@ def run_zizmor(target: str, *, config_path: Path | None = None) -> CheckResult:
         timeout=300,
         check=False,
     )
+    findings: list[Finding] = []
+    stdout = result.stdout
     if result.returncode == 0:
         status = AnalysisStatus.PASSED
         message = "zizmor: no findings."
     elif result.returncode in {11, 12, 13, 14}:
         status = AnalysisStatus.FINDINGS
         message = "zizmor: security findings detected."
+        try:
+            findings = _parse_findings(result.stdout, Path(target).absolute(), version)
+        except (AttributeError, KeyError, TypeError, ValueError) as error:
+            status = AnalysisStatus.ERROR
+            message = f"Could not read zizmor findings: {error}"
+        else:
+            stdout = ""
     elif result.returncode == 3:
         status = AnalysisStatus.NOT_EVALUATED
         message = "zizmor not evaluated: no supported inputs were found."
@@ -48,6 +139,7 @@ def run_zizmor(target: str, *, config_path: Path | None = None) -> CheckResult:
         status=status,
         message=message,
         tool="zizmor",
-        stdout=result.stdout,
+        stdout=stdout,
         stderr=result.stderr,
+        findings=findings,
     )

@@ -1,5 +1,6 @@
 """Verify provider dispatch, scanner execution, and result handling."""
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
@@ -144,9 +145,34 @@ def test_scanner_exit_codes(
     scanner_code: int, expected: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     create_repository(tmp_path, "https://github.com/org/repo.git")
+    finding = {
+        "ident": "unpinned-uses",
+        "desc": "unpinned action reference",
+        "url": "https://docs.zizmor.sh/audits/#unpinned-uses",
+        "determinations": {
+            "severity": "High",
+            "confidence": "High",
+            "persona": "Regular",
+        },
+        "locations": [
+            {
+                "symbolic": {
+                    "kind": "Primary",
+                    "key": {"Local": {"verbatim_path": str(tmp_path / "action.yml")}},
+                    "route": {"route": []},
+                    "annotation": "pin this action",
+                },
+                "concrete": {
+                    "location": {"start_point": {"row": 0, "column": 0}},
+                    "feature": "scanner evidence",
+                },
+            }
+        ],
+    }
+    stdout = json.dumps([finding]) if expected == 1 else "scanner stdout\n"
     scanner = Mock(
         return_value=subprocess.CompletedProcess(
-            [], scanner_code, "scanner stdout\n", "scanner stderr\n"
+            [], scanner_code, stdout, "scanner stderr\n"
         )
     )
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess", Mock(run=scanner))
@@ -154,7 +180,8 @@ def test_scanner_exit_codes(
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
     assert result.exit_code == expected
-    assert ("scanner stdout" in result.stdout) == (scanner_code != 0)
+    assert ("scanner stdout" in result.stdout) == (expected in {2, 3})
+    assert ("action.yml:1:1: high[unpinned-uses]" in result.stdout) == (expected == 1)
     assert "scanner stderr" in result.stderr
 
 
@@ -186,6 +213,10 @@ def test_scanner_arguments(
     config_args = ["--config", str(config_path)] if has_config else ["--no-config"]
     process = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", process)
+    monkeypatch.setattr(
+        "nomad_sec_ops.scanners.zizmor._zizmor_executable",
+        lambda: ("zizmor", "1.32.0"),
+    )
     monkeypatch.setenv("ZIZMOR_CONFIG", "/unrelated/zizmor.yml")
 
     run_zizmor("/local/repo", config_path=config_path)
@@ -195,7 +226,7 @@ def test_scanner_arguments(
         "zizmor",
         "--quiet",
         "--offline",
-        "--format=plain",
+        "--format=json-v1",
         "--gh-hostname=github.com",
         *config_args,
         "--no-ignores",
@@ -203,6 +234,20 @@ def test_scanner_arguments(
         "/local/repo",
     ]
     assert process.call_args.kwargs["env"].get("ZIZMOR_CONFIG") is None
+
+
+@pytest.mark.parametrize("output", ["not JSON", "[]", '[{"locations": []}]'])
+def test_cannot_decode_reported_findings(
+    output: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    process = Mock(return_value=subprocess.CompletedProcess([], 14, output, ""))
+    monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", process)
+
+    result = run_zizmor(str(tmp_path))
+
+    assert result.status == AnalysisStatus.ERROR
+    assert result.findings == []
+    assert "Could not read zizmor findings" in result.message
 
 
 @pytest.mark.parametrize("has_warning", [False, True])

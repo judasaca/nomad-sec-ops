@@ -21,7 +21,11 @@ def execute_step(step: AnalysisStep, target: RepositoryTarget) -> StepResult:
     try:
         result = step.run(target)
     except FileNotFoundError as error:
-        guidance = "Install Git." if error.filename == "git" else "Run uv sync."
+        guidance = (
+            "Install Git."
+            if error.filename == "git"
+            else "Check that the scanner is installed in the Python environment."
+        )
         result = CheckResult(
             status=AnalysisStatus.ERROR,
             message=f"Required executable unavailable: {error.filename}. {guidance}",

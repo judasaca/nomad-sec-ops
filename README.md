@@ -1,7 +1,7 @@
 # Nomad SecOps
 
-Nomad SecOps is a security analysis CLI for GitHub and GitLab repositories in the
-Nomad ecosystem.
+Nomad SecOps is a Python library and command-line tool for security analysis of
+GitHub and GitLab repositories in the Nomad ecosystem.
 
 ## Objectives
 
@@ -52,6 +52,44 @@ uv run nomadsecops equivalence --details
 ```
 
 Use `--json` for structured output.
+
+### Python API
+
+Install into a project that uses Python 3.14 or newer and has Git on its PATH.
+Install a wheel built with `uv build --wheel` from this repository, or add the
+package as a Git dependency at a commit containing the API.
+
+```sh
+uv add /path/to/nomad-sec-ops/dist/nomad_sec_ops-0.1.0-py3-none-any.whl
+# Or install from Git using the desired commit SHA.
+uv add 'nomad-sec-ops @ git+https://github.com/judasaca/nomad-sec-ops.git@COMMIT_SHA'
+```
+
+```python
+from nomad_sec_ops import static_analysis
+
+report = static_analysis("/path/to/checkout", provider="gitlab")
+# Remote example: static_analysis(repo="https://github.com/org/repo.git", branch="main")
+
+for step in report.steps:
+    for finding in step.result.findings:
+        print(f"{finding.file}:{finding.line} {finding.rule_id} {finding.message}")
+
+payload = report.model_dump(mode="json")
+```
+
+With neither `path` nor `repo`, the function scans the current directory.
+The call is synchronous and silent. Findings from both providers use paths
+relative to the scanned directory and one-based line and column numbers.
+`report.repository` records the resolved provider and the available branch and
+abbreviated commit. Remote checkouts use the system temporary directory and are
+removed when the call ends.
+
+Invalid arguments raise `ValueError`. Target preparation failures raise
+`nomad_sec_ops.AnalysisError`. Findings and scanner failures are represented by
+per-step statuses in the returned `AnalysisReport`. The computed
+`report.exit_code` follows the CLI's exit code rules and is available on the
+Python model.
 
 ### CI/CD settings
 

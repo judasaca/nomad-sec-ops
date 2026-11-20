@@ -1,9 +1,12 @@
 """Shared results for repository analysis steps and scanner adapters."""
 
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from nomad_sec_ops.repositories import RepositoryProvider
 
 
 class AnalysisStatus(StrEnum):
@@ -15,13 +18,13 @@ class AnalysisStatus(StrEnum):
 
 
 class UpstreamRule(BaseModel):
-    """Versioned identity of the reference implementation for an adapted rule."""
+    """Upstream identity and available provenance for a finding's rule."""
 
     tool: str
     rule_id: str
-    version: str
-    commit: str
-    source_url: str
+    version: str | None
+    commit: str | None
+    source_url: str | None
     documentation_url: str
 
 
@@ -54,8 +57,19 @@ class StepResult(BaseModel):
     result: CheckResult
 
 
+class RepositoryInfo(BaseModel):
+    """Target identity captured before any temporary checkout is removed."""
+
+    provider: RepositoryProvider | None = None
+    local_path: Path | None = None
+    remote: str | None = None
+    branch: str | None = None
+    commit: str | None = None
+
+
 class AnalysisReport(BaseModel):
     steps: list[StepResult] = Field(default_factory=list)
+    repository: RepositoryInfo | None = None
 
     @property
     def exit_code(self) -> int:

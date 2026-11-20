@@ -1,19 +1,20 @@
 """Command-line interface for Nomad SecOps."""
 
-import subprocess
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from nomad_sec_ops import __version__
+from nomad_sec_ops.analysis import AnalysisError, _run_static_analysis
 from nomad_sec_ops.equivalence import build_equivalence_report
-from nomad_sec_ops.models import AnalysisStatus
+from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, RepositoryInfo
 from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
 from nomad_sec_ops.repositories import (
+    DEFAULT_CHECKOUT_ROOT,
+    InvalidTargetError,
     RepositoryProvider,
-    checkout_revision,
-    resolve_target,
+    RepositoryTarget,
 )
 from nomad_sec_ops.steps import AnalysisStep
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
@@ -82,11 +83,6 @@ def static_analysis(
             "--path",
             "-p",
             help="Local project directory. Defaults to the current directory.",
-            exists=True,
-            file_okay=False,
-            dir_okay=True,
-            readable=True,
-            resolve_path=True,
         ),
     ] = None,
     repo: Annotated[
@@ -120,61 +116,40 @@ def static_analysis(
     ] = False,
 ) -> None:
     """Run applicable security checks on a local or remote repository."""
-    if path is not None and repo is not None:
-        raise typer.BadParameter("--path and --repo cannot be used together.")
 
-    if branch is not None:
-        if repo is None:
-            raise typer.BadParameter("--branch requires --repo.", param_hint="--branch")
-        if not branch.strip():
-            raise typer.BadParameter(
-                "Branch name cannot be empty.", param_hint="--branch"
-            )
-
-    if repo is not None:
-        if not repo.strip():
-            raise typer.BadParameter(
-                "Repository URL cannot be empty.", param_hint="--repo"
-            )
-    try:
-        with resolve_target(
-            path=path, repo=repo, provider=provider, branch=branch
-        ) as target:
-            if repo is not None and target.remote is not None:
-                typer.echo(
-                    f"Remote repository: {target.remote.host}/{target.remote.path}"
-                )
-            else:
-                typer.echo(f"Local path: {target.local_path}")
-            checked_out_branch, commit = (
-                checkout_revision(target.local_path)
-                if target.local_path is not None
-                else (None, None)
-            )
-            if checked_out_branch is None:
-                checked_out_branch = "detached HEAD" if commit else "unavailable"
-            typer.echo(f"Branch: {checked_out_branch}")
-            typer.echo(f"Commit: {commit or 'unavailable'}")
-            steps: list[AnalysisStep] = []
-            if demo:
-                typer.echo(
-                    "Demo mode: npm, Python, and Docker steps simulate work only."
-                )
-                steps.extend(
-                    (NpmDependencies(), PythonDependencies(), DockerAnalysis())
-                )
-            steps.append(CICDAnalysis())
-            report = run_with_progress(target, steps)
-    except FileNotFoundError as error:
-        typer.echo(
-            f"Required executable unavailable: {error.filename}. Install Git.",
-            err=True,
+    def show_target(repository: RepositoryInfo) -> None:
+        if repo is not None:
+            typer.echo(f"Remote repository: {repository.remote}")
+        else:
+            typer.echo(f"Local path: {repository.local_path}")
+        checked_out_branch = repository.branch or (
+            "detached HEAD" if repository.commit else "unavailable"
         )
-        raise typer.Exit(2) from error
-    except subprocess.TimeoutExpired as error:
-        typer.echo("Repository detection timed out.", err=True)
-        raise typer.Exit(2) from error
-    except (OSError, ValueError) as error:
+        typer.echo(f"Branch: {checked_out_branch}")
+        typer.echo(f"Commit: {repository.commit or 'unavailable'}")
+
+    def run_checks(target: RepositoryTarget) -> AnalysisReport:
+        steps: list[AnalysisStep] = []
+        if demo:
+            typer.echo("Demo mode: npm, Python, and Docker steps simulate work only.")
+            steps.extend((NpmDependencies(), PythonDependencies(), DockerAnalysis()))
+        steps.append(CICDAnalysis())
+        return run_with_progress(target, steps)
+
+    try:
+        report = _run_static_analysis(
+            path,
+            repo=repo,
+            provider=provider,
+            branch=branch,
+            checkout_root=DEFAULT_CHECKOUT_ROOT,
+            on_target=show_target,
+            run_checks=run_checks,
+        )
+    except InvalidTargetError as error:
+        hint = f"--{error.parameter}" if error.parameter is not None else None
+        raise typer.BadParameter(str(error), param_hint=hint) from error
+    except AnalysisError as error:
         typer.echo(f"Analysis error: {error}", err=True)
         raise typer.Exit(2) from error
 
@@ -193,6 +168,15 @@ def static_analysis(
             result.tool == "zizmor" and result.status == AnalysisStatus.PASSED
         ):
             typer.echo(result.stdout, nl=False)
+        if result.tool == "zizmor":
+            for finding in result.findings:
+                typer.echo(
+                    f"{finding.file}:{finding.line}:{finding.column}: "
+                    f"{finding.severity}[{finding.rule_id}] {finding.message}"
+                )
+                if finding.evidence:
+                    typer.echo(f"  {finding.evidence}")
+                typer.echo(f"  fix: {finding.remediation}")
         if result.stderr:
             typer.echo(result.stderr, nl=False, err=True)
     raise typer.Exit(report.exit_code)

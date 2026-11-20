@@ -11,6 +11,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
+DEFAULT_CHECKOUT_ROOT = Path(".nomad-sec-ops-checkouts")
+
+
+class InvalidTargetError(ValueError):
+    """An invalid argument supplied by the caller."""
+
+    def __init__(self, message: str, *, parameter: str | None = None) -> None:
+        super().__init__(message)
+        self.parameter = parameter
+
 
 class RepositoryProvider(StrEnum):
     GITHUB = "github"
@@ -58,48 +68,82 @@ class RepositoryTarget:
 
 @contextmanager
 def resolve_target(
-    path: Path | None = None,
+    path: str | Path | None = None,
     repo: str | None = None,
-    provider: RepositoryProvider | None = None,
+    provider: RepositoryProvider | str | None = None,
     *,
     branch: str | None = None,
+    checkout_root: Path | None = DEFAULT_CHECKOUT_ROOT,
 ) -> Generator[RepositoryTarget]:
     """Keep the checkout available for the lifetime of an analysis run."""
     if path is not None and repo is not None:
-        raise ValueError("--path and --repo cannot be used together.")
+        raise InvalidTargetError("--path and --repo cannot be used together.")
+    if branch is not None:
+        if repo is None:
+            raise InvalidTargetError("--branch requires --repo.", parameter="branch")
+        if not branch.strip():
+            raise InvalidTargetError("Branch name cannot be empty.", parameter="branch")
+    if provider is not None:
+        try:
+            provider = RepositoryProvider(provider)
+        except ValueError as error:
+            raise InvalidTargetError(
+                "Provider must be 'github' or 'gitlab'.", parameter="provider"
+            ) from error
     if repo is not None:
-        remote = parse_remote(repo)
+        if not repo.strip():
+            raise InvalidTargetError(
+                "Repository URL cannot be empty.", parameter="repo"
+            )
+        try:
+            remote = parse_remote(repo)
+        except ValueError as error:
+            raise InvalidTargetError(str(error), parameter="repo") from error
         target = RepositoryTarget(local_path=None, remote=remote, provider=provider)
         if target.hosting_provider is None:
             yield target
             return
-        with checkout_repository(repo, remote, branch=branch) as local_path:
+        with checkout_repository(
+            repo, remote, branch=branch, root=checkout_root
+        ) as local_path:
             yield replace(target, local_path=local_path)
         return
 
-    local_path = (path if path is not None else Path.cwd()).resolve()
+    try:
+        local_path = (Path(path) if path is not None else Path.cwd()).resolve()
+    except ValueError as error:
+        raise InvalidTargetError(str(error), parameter="path") from error
+    if not local_path.is_dir() or not os.access(local_path, os.R_OK | os.X_OK):
+        raise InvalidTargetError(
+            f"Path must be a readable directory: {local_path}", parameter="path"
+        )
     yield RepositoryTarget(local_path, local_remote(local_path), provider)
 
 
 @contextmanager
 def checkout_repository(
-    url: str, remote: RemoteRepository, *, branch: str | None = None
+    url: str,
+    remote: RemoteRepository,
+    *,
+    branch: str | None = None,
+    root: Path | None = DEFAULT_CHECKOUT_ROOT,
 ) -> Generator[Path]:
-    root = Path.cwd() / ".nomad-sec-ops-checkouts"
-    root.mkdir(mode=0o700, exist_ok=True)
-    # Keep downloads ignored in directories outside the Nomad SecOps source repo too.
-    with (
-        suppress(FileExistsError),
-        (root / ".gitignore").open("x", encoding="utf-8") as ignore,
-    ):
-        ignore.write("*\n")
+    if root is not None:
+        root = root.absolute()
+        root.mkdir(mode=0o700, exist_ok=True)
+        # Keep CLI downloads ignored in the caller's working directory.
+        with (
+            suppress(FileExistsError),
+            (root / ".gitignore").open("x", encoding="utf-8") as ignore,
+        ):
+            ignore.write("*\n")
 
     label = f"{remote.host}/{remote.path}"
     branch_args: list[str] = []
     if branch is not None:
         label += f" at branch {branch!r}"
         branch_args = [f"--branch={branch}"]
-    with TemporaryDirectory(dir=root) as directory:
+    with TemporaryDirectory(prefix="nomad-sec-ops-", dir=root) as directory:
         checkout = Path(directory) / "repo"
         try:
             result = subprocess.run(

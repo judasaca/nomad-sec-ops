@@ -99,7 +99,7 @@ class UnpinnedImages:
                     severity="high",
                     confidence=assessment.confidence,
                     persona=assessment.persona,
-                    file=str(path),
+                    file=path.name,
                     line=reference.line,
                     column=reference.column,
                     location=reference.location,
@@ -126,7 +126,7 @@ class UnpinnedImages:
                 f"equivalent: zizmor/{self.upstream.rule_id}@{self.upstream.version}."
             ),
             stdout="".join(
-                f"{finding.file}:{finding.line}:{finding.column}: "
+                f"{path}:{finding.line}:{finding.column}: "
                 f"{finding.severity}[{finding.rule_id}] {finding.message} "
                 f"({finding.location}; confidence: {finding.confidence})\n"
                 f"  image: {finding.evidence}\n  fix: {finding.remediation}\n"
