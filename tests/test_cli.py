@@ -325,7 +325,7 @@ def test_remote_target(
         assert "CI/CD skipped" in result.output
     elif "github.com" in repo:
         scanner.assert_called_once_with(
-            str(checkouts[0]), config_path=checkouts[0] / "nomad-sec-ops-ci-cd.yml"
+            str(checkouts[0]), rule_overrides={"template-injection": True}
         )
         assert "audit output" in result.output
     else:

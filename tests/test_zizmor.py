@@ -107,7 +107,7 @@ def test_local_dispatch(
 
     assert result.exit_code == (0 if host == "github.com" else 3)
     if host == "github.com":
-        scanner.assert_called_once_with(str(tmp_path.resolve()), config_path=None)
+        scanner.assert_called_once_with(str(tmp_path.resolve()), rule_overrides={})
         assert "audit output" not in result.output
     else:
         scanner.assert_not_called()
@@ -223,12 +223,7 @@ def test_scanner_execution_errors(
     assert "Traceback" not in result.output
 
 
-@pytest.mark.parametrize("has_config", [False, True])
-def test_scanner_arguments(
-    has_config: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config_path = tmp_path / "nomad-sec-ops-ci-cd.yml" if has_config else None
-    config_args = ["--config", str(config_path)] if has_config else ["--no-config"]
+def test_scanner_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     process = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess.run", process)
     monkeypatch.setattr(
@@ -237,21 +232,24 @@ def test_scanner_arguments(
     )
     monkeypatch.setenv("ZIZMOR_CONFIG", "/unrelated/zizmor.yml")
 
-    run_zizmor("/local/repo", config_path=config_path)
+    run_zizmor("/local/repo")
 
     process.assert_called_once()
+    config_path = Path(process.call_args.args[0][6])
     assert process.call_args.args[0] == [
         "zizmor",
         "--quiet",
         "--offline",
         "--format=json-v1",
         "--gh-hostname=github.com",
-        *config_args,
+        "--config",
+        str(config_path),
         "--no-ignores",
         "--",
         "/local/repo",
     ]
     assert process.call_args.kwargs["env"].get("ZIZMOR_CONFIG") is None
+    assert not config_path.exists()
 
 
 @pytest.mark.parametrize("output", ["not JSON", "[]", '[{"locations": []}]'])
@@ -350,3 +348,32 @@ def test_real_offline_scan(
     assert result.exit_code == 1, result.output
     assert "dangerous-triggers" in result.output
     assert ("template-injection" in result.output) == (not disable)
+
+
+@pytest.mark.parametrize("disable", [None, False, True])
+def test_shared_workflow_pinning_policy(disable: bool | None, tmp_path: Path) -> None:
+    create_repository(tmp_path, "https://github.com/org/repo.git")
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "security.yml").write_text(
+        "name: Security\n"
+        "on: [pull_request]\n"
+        "permissions: {contents: read}\n"
+        "jobs:\n"
+        "  shared:\n"
+        "    uses: judasaca/nomad-sec-ops/.github/workflows/security-scan.yml@develop\n"
+        "  other:\n"
+        "    uses: judasaca/nomad-sec-ops/.github/workflows/other.yml@develop"
+        " # zizmor: ignore[unpinned-uses]\n"
+    )
+    if disable is not None:
+        (tmp_path / "nomad-sec-ops-ci-cd.yml").write_text(
+            f"rules: {{unpinned-uses: {{disable: {str(disable).lower()}}}}}"
+        )
+
+    result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path), "-v"])
+
+    assert result.exit_code == (0 if disable else 1), result.output
+    assert ("unpinned-uses" in result.output) == (not disable)
+    assert ("/other.yml@develop" in result.output) == (not disable)
+    assert "/security-scan.yml@develop" not in result.output

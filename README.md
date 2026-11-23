@@ -61,15 +61,17 @@ Use `--json` for structured output.
 ### GitHub Actions
 
 Save this caller as `.github/workflows/nomad-sec-ops.yml` in the repository
-you want to scan. It runs the shared workflow from the `develop` branch on
-pushes and pull requests. Use a full commit SHA in place of `develop` to pin
-the workflow itself.
+you want to scan. It runs the shared workflow from `develop` when a pull request
+opens or updates and on pushes to `develop` and `main`, including merges into
+either branch. Adjust the push filter to match your project's branch names. Use
+a full commit SHA in the `uses` ref to pin the shared workflow.
 
 ```yaml
 name: Nomad SecOps
 
 on:
   push:
+    branches: [develop, main]
   pull_request:
 
 permissions:
@@ -84,6 +86,10 @@ The shared workflow checks out the calling repository, installs Nomad SecOps
 from the latest commit on `develop`, and writes findings to the job log. It
 refreshes the package on each run. The runner needs Git read access to the Nomad
 SecOps repository to install the package.
+
+Nomad SecOps accepts the branch reference for this shared workflow by default.
+Other workflow and action references still follow zizmor's SHA pinning policy.
+
 The job fails on any nonzero [exit code](#exit-codes), including when the scan
 reports findings or cannot fully evaluate a check. To configure the audit rules,
 add `nomad-sec-ops-ci-cd.yml` at the root of the repository being scanned.
@@ -139,10 +145,10 @@ rules:
 ```
 
 For GitHub Actions, `disable: true` skips the named zizmor audit. Omit the file or
-use `rules: {}` to leave all applicable audits enabled. Nomad SecOps passes the
-validated file directly to zizmor. Use YAML syntax compatible with zizmor. The
-scan ignores repository `zizmor.yml` files, `ZIZMOR_CONFIG`, and inline zizmor
-ignore comments.
+use `rules: {}` to leave all applicable audits enabled. Nomad SecOps combines the
+validated `disable` settings with its built-in shared workflow policy before
+running zizmor. The scan ignores repository `zizmor.yml` files, `ZIZMOR_CONFIG`,
+and inline zizmor ignore comments.
 
 If the file is unreadable or invalid, the CI/CD step is reported as not evaluated
 with a warning, and any other analysis steps continue.

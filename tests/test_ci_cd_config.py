@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from nomad_sec_ops.steps.ci_cd.config import CONFIG_FILENAME, resolve_ci_cd_config
+from nomad_sec_ops.steps.ci_cd.config import CONFIG_FILENAME, load_ci_cd_settings
 
 
 @pytest.mark.parametrize(
@@ -22,7 +22,7 @@ def test_valid_config(tmp_path: Path, content: str) -> None:
     path = tmp_path / CONFIG_FILENAME
     path.write_text(content, encoding="utf-8")
 
-    assert resolve_ci_cd_config(path) == path
+    load_ci_cd_settings(path)
 
 
 @pytest.mark.parametrize(
@@ -40,6 +40,10 @@ def test_valid_config(tmp_path: Path, content: str) -> None:
             "Unknown rule IDs 'another-rule', 'missing-rule'",
         ),
         ("rules: {unpinned-images: {ignore: []}}", "Extra inputs are not permitted"),
+        (
+            "rules: {unpinned-uses: {disable: false, config: {policies: {}}}}",
+            "Extra inputs are not permitted",
+        ),
         ("rules: {unpinned-images: true}", "Input should be a valid dictionary"),
         ("rules: {unpinned-images: {}}", "Field required"),
         (
@@ -55,4 +59,4 @@ def test_invalid_config(tmp_path: Path, content: str, error: str) -> None:
     path.write_text(content, encoding="utf-8")
 
     with pytest.raises(ValueError, match=error):
-        resolve_ci_cd_config(path)
+        load_ci_cd_settings(path)

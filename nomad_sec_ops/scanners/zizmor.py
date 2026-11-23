@@ -5,9 +5,14 @@ import os
 import subprocess
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import yaml
 
 from nomad_sec_ops.models import AnalysisStatus, CheckResult, Finding, UpstreamRule
 from nomad_sec_ops.scanners.zizmor_catalog import AUDITS, ZIZMOR_COMMIT, ZIZMOR_VERSION
+
+SHARED_WORKFLOW = "judasaca/nomad-sec-ops/.github/workflows/security-scan.yml"
 
 
 def _zizmor_executable() -> tuple[str, str | None]:
@@ -88,32 +93,40 @@ def _parse_findings(output: str, directory: Path, version: str | None) -> list[F
     return findings
 
 
-def run_zizmor(target: str, *, config_path: Path | None = None) -> CheckResult:
+def run_zizmor(
+    target: str, *, rule_overrides: dict[str, bool] | None = None
+) -> CheckResult:
     executable, version = _zizmor_executable()
-    config_args = (
-        ["--no-config"] if config_path is None else ["--config", str(config_path)]
-    )
+    rules: dict[str, dict[str, object]] = {
+        "unpinned-uses": {"config": {"policies": {SHARED_WORKFLOW: "ref-pin"}}}
+    }
+    for rule_id, disabled in (rule_overrides or {}).items():
+        rules.setdefault(rule_id, {})["disable"] = disabled
+
     env = os.environ.copy()
-    # zizmor treats ZIZMOR_CONFIG as --config, which conflicts with --no-config.
     env.pop("ZIZMOR_CONFIG", None)
-    result = subprocess.run(
-        [
-            executable,
-            "--quiet",
-            "--offline",
-            "--format=json-v1",
-            "--gh-hostname=github.com",
-            *config_args,
-            "--no-ignores",
-            "--",
-            target,
-        ],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=300,
-        check=False,
-    )
+    with TemporaryDirectory(prefix="nomad-sec-ops-zizmor-") as directory:
+        config_path = Path(directory) / "zizmor.yml"
+        config_path.write_text(yaml.safe_dump({"rules": rules}), encoding="utf-8")
+        result = subprocess.run(
+            [
+                executable,
+                "--quiet",
+                "--offline",
+                "--format=json-v1",
+                "--gh-hostname=github.com",
+                "--config",
+                str(config_path),
+                "--no-ignores",
+                "--",
+                target,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
     findings: list[Finding] = []
     stdout = result.stdout
     if result.returncode == 0:

@@ -33,14 +33,14 @@ class CICDSettings(BaseModel):
         return rules
 
 
-def resolve_ci_cd_config(path: Path) -> Path | None:
-    """Return the validated settings path if the optional file exists."""
+def load_ci_cd_settings(path: Path) -> CICDSettings:
+    """Load the repository settings, using defaults if the file is absent."""
     try:
         mode = path.stat().st_mode
     except FileNotFoundError:
         if path.is_symlink():
             raise
-        return None
+        return CICDSettings()
     if not S_ISREG(mode):
         raise ValueError("Expected a regular file.")
 
@@ -53,5 +53,4 @@ def resolve_ci_cd_config(path: Path) -> Path | None:
     except RecursionError as error:
         raise ValueError("YAML is nested too deeply.") from error
 
-    CICDSettings.model_validate(data)
-    return path
+    return CICDSettings.model_validate(data)
