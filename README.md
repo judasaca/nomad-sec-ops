@@ -58,6 +58,35 @@ uv run nomadsecops equivalence --details
 
 Use `--json` for structured output.
 
+### GitHub Actions
+
+Save this caller as `.github/workflows/nomad-sec-ops.yml` in the repository
+you want to scan. It runs the shared workflow from the `develop` branch on
+pushes and pull requests. Use a full commit SHA in place of `develop` to pin
+the workflow itself.
+
+```yaml
+name: Nomad SecOps
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  security-scan:
+    uses: judasaca/nomad-sec-ops/.github/workflows/security-scan.yml@develop
+```
+
+The shared workflow checks out the calling repository, installs Nomad SecOps
+at a pinned commit, and writes findings to the job log. The runner needs Git
+read access to the Nomad SecOps repository to install the package.
+The job fails on any nonzero [exit code](#exit-codes), including when the scan
+reports findings or cannot fully evaluate a check. To configure the audit rules,
+add `nomad-sec-ops-ci-cd.yml` at the root of the repository being scanned.
+
 ### Python API
 
 Install into a project that uses Python 3.14 or newer and has Git on its PATH.
