@@ -21,6 +21,6 @@ jobs:
           version: "0.13.1"
       - name: Audit GitHub Actions workflows
         run: >-
-          uvx --no-config --python 3.14
-          --from 'nomad-sec-ops @ git+https://github.com/judasaca/nomad-sec-ops.git@049396b0a9a1f989ec6c05c387305f4b031a8682'
+          uvx --no-config --no-cache --python 3.14
+          --from 'nomad-sec-ops @ git+https://github.com/judasaca/nomad-sec-ops.git@develop'
           nomadsecops static-analysis --path .

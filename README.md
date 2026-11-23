@@ -81,8 +81,9 @@ jobs:
 ```
 
 The shared workflow checks out the calling repository, installs Nomad SecOps
-at a pinned commit, and writes findings to the job log. The runner needs Git
-read access to the Nomad SecOps repository to install the package.
+from the latest commit on `develop`, and writes findings to the job log. It
+refreshes the package on each run. The runner needs Git read access to the Nomad
+SecOps repository to install the package.
 The job fails on any nonzero [exit code](#exit-codes), including when the scan
 reports findings or cannot fully evaluate a check. To configure the audit rules,
 add `nomad-sec-ops-ci-cd.yml` at the root of the repository being scanned.
