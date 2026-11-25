@@ -219,7 +219,7 @@ def test_scanner_exit_codes(
     assert ("scanner stdout" in result.stdout) == (expected in {2, 3})
     assert f"Total findings: {int(expected == 1)}" in result.stdout
     compact = (
-        "action.yml:1: unpinned action reference: pin this action  "
+        "action.yml:1: [unpinned-uses] unpinned action reference: pin this action  "
         "https://docs.zizmor.sh/audits/#unpinned-uses"
     )
     assert (compact in result.stdout) == (expected == 1 and not verbose)

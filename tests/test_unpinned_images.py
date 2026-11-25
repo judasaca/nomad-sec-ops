@@ -200,8 +200,9 @@ def test_cli_findings(tmp_path: Path, verbose: bool) -> None:
     assert result.stdout.count("High severity") == 1
     assert "include files are not resolved" in result.stderr
     for line in (
-        ".gitlab-ci.yml:2: container image is unpinned",
-        ".gitlab-ci.yml:3: container image uses the floating 'latest' tag",
+        ".gitlab-ci.yml:2: [unpinned-images] container image is unpinned",
+        ".gitlab-ci.yml:3: [unpinned-images] "
+        "container image uses the floating 'latest' tag",
     ):
         assert (f"{line}  {UPSTREAM.documentation_url}" in result.stdout) == (
             not verbose

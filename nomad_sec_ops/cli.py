@@ -72,7 +72,7 @@ def _show_findings(report: AnalysisReport, *, verbose: bool) -> None:
             else:
                 message = " ".join(finding.message.split())
                 typer.echo(
-                    f"{finding.file}:{finding.line}: {message}  "
+                    f"{finding.file}:{finding.line}: [{finding.rule_id}] {message}  "
                     f"{finding.upstream.documentation_url}"
                 )
 

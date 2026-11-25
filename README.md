@@ -41,13 +41,30 @@ select a branch with `--branch`. The checkout goes into
 this directory, and Nomad SecOps removes the checkout after the scan. Private
 repositories use your Git HTTPS or SSH credentials.
 
-The scan logs the checkout's branch and short HEAD commit before the checks
-start. Local scans read the working tree, including any uncommitted changes.
-By default, each finding shows the file, line number, short message, and link
-to the upstream rule documentation. Both output modes group findings from high
-to informational severity and show the total and per-severity counts. Terminals
-display severity headings and counts in color. Use `--verbose` or `-v` to see
-details such as evidence and suggested fixes.
+Local scans read the working tree, including any uncommitted changes.
+
+**Default finding format**
+
+```text
+<file>:<line>: [<rule-id>] <message>  <rule-documentation-url>
+```
+
+**Example GitLab CI scan output**
+
+```text
+Local path: /path/to/project
+Branch: main
+Commit: 7ce3ede
+Running [ci-cd]...
+[ci-cd] findings
+[ci-cd] GitLab CI/CD: 1 rule(s) completed (findings).
+
+High severity
+.gitlab-ci.yml:2: [unpinned-images] container image is unpinned  https://docs.zizmor.sh/audits/#unpinned-images
+Total findings: 1 (High: 1, Medium: 0, Low: 0, Informational: 0)
+```
+
+Use `--verbose` or `-v` to see evidence and suggested fixes.
 
 Add `--demo` to preview the Python, npm, and Docker steps. To see which
 zizmor rules have a registered GitLab equivalent, run:
