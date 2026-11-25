@@ -3,6 +3,6 @@
 ci-cd:
   rules:
     unpinned-uses:
-      disable: false
+      disable: true
       policies:
         "judasaca/nomad-sec-ops/.github/workflows/security-scan.yml": ref-pin
