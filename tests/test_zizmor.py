@@ -72,7 +72,7 @@ def test_non_github_does_not_run_scanner(
     url: str, expected_code: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     scanner = Mock()
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", scanner)
     download = Mock()
     monkeypatch.setattr("nomad_sec_ops.repositories.checkout_repository", download)
 
@@ -98,7 +98,7 @@ def test_local_dispatch(
             stdout="audit output\n",
         )
     )
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", scanner)
     args = ["static-analysis"]
     if not use_default:
         args.extend(["--path", str(tmp_path)])
@@ -107,7 +107,13 @@ def test_local_dispatch(
 
     assert result.exit_code == (0 if host == "github.com" else 3)
     if host == "github.com":
-        scanner.assert_called_once_with(str(tmp_path.resolve()), rule_overrides={})
+        scanner.assert_called_once_with(
+            str(tmp_path.resolve()),
+            rule_overrides={"unpinned-uses": False},
+            unpinned_uses_policies={
+                "judasaca/nomad-sec-ops/.github/workflows/security-scan.yml": "ref-pin"
+            },
+        )
         assert "audit output" not in result.output
     else:
         scanner.assert_not_called()
@@ -125,10 +131,32 @@ def test_nested_local_directory(tmp_path: Path) -> None:
     assert remote.host == "github.com"
 
 
+def test_nested_scan_loads_repository_root_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path, "https://github.com/org/repo.git")
+    nested = tmp_path / "src"
+    nested.mkdir()
+    (tmp_path / "nomad-sec-ops.yml").write_text(
+        "ci-cd: {rules: {template-injection: {disable: true}}}"
+    )
+    (nested / "nomad-sec-ops.yml").write_text("invalid: [")
+    scanner = Mock(
+        return_value=CheckResult(status=AnalysisStatus.PASSED, message="zizmor")
+    )
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", scanner)
+
+    result = runner.invoke(app, ["static-analysis", "--path", str(nested)])
+
+    assert result.exit_code == 0, result.output
+    assert scanner.call_args.args == (str(nested),)
+    assert scanner.call_args.kwargs["rule_overrides"]["template-injection"] is True
+
+
 def test_missing_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     create_repository(tmp_path, None)
     scanner = Mock()
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", scanner)
 
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
@@ -215,7 +243,9 @@ def test_scanner_execution_errors(
     error: Exception, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     create_repository(tmp_path, "https://github.com/org/repo.git")
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", Mock(side_effect=error))
+    monkeypatch.setattr(
+        "nomad_sec_ops.scanners.github.run_zizmor", Mock(side_effect=error)
+    )
 
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
@@ -338,8 +368,10 @@ def test_real_offline_scan(
     else:
         monkeypatch.delenv("ZIZMOR_CONFIG", raising=False)
     if disable is not None:
-        (tmp_path / "nomad-sec-ops-ci-cd.yml").write_text(
-            f"rules: {{template-injection: {{disable: {str(disable).lower()}}}}}"
+        (tmp_path / "nomad-sec-ops.yml").write_text(
+            "ci-cd:\n"
+            "  rules:\n"
+            f"    template-injection: {{disable: {str(disable).lower()}}}"
         )
     monkeypatch.setenv("ZIZMOR_OFFLINE", "true")
 
@@ -351,7 +383,10 @@ def test_real_offline_scan(
 
 
 @pytest.mark.parametrize("disable", [None, False, True])
-def test_shared_workflow_pinning_policy(disable: bool | None, tmp_path: Path) -> None:
+@pytest.mark.parametrize("require_hash", [False, True])
+def test_shared_workflow_pinning_policy(
+    disable: bool | None, require_hash: bool, tmp_path: Path
+) -> None:
     create_repository(tmp_path, "https://github.com/org/repo.git")
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
@@ -366,9 +401,22 @@ def test_shared_workflow_pinning_policy(disable: bool | None, tmp_path: Path) ->
         "    uses: judasaca/nomad-sec-ops/.github/workflows/other.yml@develop"
         " # zizmor: ignore[unpinned-uses]\n"
     )
-    if disable is not None:
-        (tmp_path / "nomad-sec-ops-ci-cd.yml").write_text(
-            f"rules: {{unpinned-uses: {{disable: {str(disable).lower()}}}}}"
+    if require_hash:
+        rule_settings = (
+            "" if disable is None else f"      disable: {str(disable).lower()}\n"
+        )
+        (tmp_path / "nomad-sec-ops.yml").write_text(
+            "ci-cd:\n"
+            "  rules:\n"
+            "    unpinned-uses:\n"
+            f"{rule_settings}"
+            "      policies:\n"
+            "        judasaca/nomad-sec-ops/.github/workflows/security-scan.yml:"
+            " hash-pin\n"
+        )
+    elif disable is not None:
+        (tmp_path / "nomad-sec-ops.yml").write_text(
+            f"ci-cd:\n  rules:\n    unpinned-uses: {{disable: {str(disable).lower()}}}"
         )
 
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path), "-v"])
@@ -376,4 +424,6 @@ def test_shared_workflow_pinning_policy(disable: bool | None, tmp_path: Path) ->
     assert result.exit_code == (0 if disable else 1), result.output
     assert ("unpinned-uses" in result.output) == (not disable)
     assert ("/other.yml@develop" in result.output) == (not disable)
-    assert "/security-scan.yml@develop" not in result.output
+    assert ("/security-scan.yml@develop" in result.output) == (
+        require_hash and not disable
+    )

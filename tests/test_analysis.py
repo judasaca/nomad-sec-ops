@@ -8,11 +8,7 @@ import pytest
 
 from nomad_sec_ops.analysis import analyze_repository
 from nomad_sec_ops.models import AnalysisStatus, CheckResult, StepResult
-from nomad_sec_ops.repositories import (
-    RemoteRepository,
-    RepositoryProvider,
-    RepositoryTarget,
-)
+from nomad_sec_ops.repositories import RemoteRepository, RepositoryTarget
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
 
 
@@ -75,32 +71,48 @@ def test_unknown_host_only_affects_ci_cd_step() -> None:
     assert report.exit_code == 3
 
 
-@pytest.mark.parametrize("provider", list(RepositoryProvider))
-def test_invalid_ci_cd_config_skips_scanners_and_continues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: RepositoryProvider
+@pytest.mark.parametrize("broken_entry", ["syntax", "directory", "dangling symlink"])
+def test_invalid_repository_settings_skip_ci_cd_and_continue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, broken_entry: str
 ) -> None:
-    path = tmp_path / "nomad-sec-ops-ci-cd.yml"
-    path.write_text("rules: {unknown-rule: {disable: false}}")
-    target = RepositoryTarget(
-        tmp_path, RemoteRepository(f"{provider.value}.com", "org/repo"), provider
-    )
+    unified = tmp_path / "nomad-sec-ops.yml"
+    if broken_entry == "syntax":
+        unified.write_text("ci-cd: [")
+    elif broken_entry == "directory":
+        unified.mkdir()
+    else:
+        unified.symlink_to(tmp_path / "missing")
+    target = RepositoryTarget(tmp_path, RemoteRepository("github.com", "org/repo"))
     github = Mock()
-    gitlab = Mock()
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", github)
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_gitlab", gitlab)
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", github)
     following = ExampleStep("following", AnalysisStatus.PASSED)
 
     report = analyze_repository(target, steps=[CICDAnalysis(), following])
 
-    result = report.steps[0].result
-    assert result.status == AnalysisStatus.NOT_EVALUATED
-    assert "CI/CD skipped" in result.message
-    assert str(path) in result.stderr
-    assert "Unknown rule IDs 'unknown-rule'" in result.stderr
     assert report.exit_code == 3
+    assert f"Warning [{unified}]" in report.steps[0].result.stderr
     assert following.calls == [target]
     github.assert_not_called()
-    gitlab.assert_not_called()
+
+
+def test_unavailable_shipped_defaults_report_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = RepositoryTarget(tmp_path, RemoteRepository("github.com", "org/repo"))
+    monkeypatch.setattr(
+        "nomad_sec_ops.scanners.github.load_defaults",
+        Mock(side_effect=FileNotFoundError("missing defaults")),
+    )
+    github = Mock()
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", github)
+
+    report = analyze_repository(target)
+
+    assert report.exit_code == 2
+    assert (
+        "Invalid shipped defaults (nomad-sec-ops.yml)" in report.steps[0].result.message
+    )
+    github.assert_not_called()
 
 
 def test_step_execution_error_does_not_stop_following_steps() -> None:

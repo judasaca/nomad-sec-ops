@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from collections.abc import Mapping
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,8 +12,6 @@ import yaml
 
 from nomad_sec_ops.models import AnalysisStatus, CheckResult, Finding, UpstreamRule
 from nomad_sec_ops.scanners.zizmor_catalog import AUDITS, ZIZMOR_COMMIT, ZIZMOR_VERSION
-
-SHARED_WORKFLOW = "judasaca/nomad-sec-ops/.github/workflows/security-scan.yml"
 
 
 def _zizmor_executable() -> tuple[str, str | None]:
@@ -94,12 +93,15 @@ def _parse_findings(output: str, directory: Path, version: str | None) -> list[F
 
 
 def run_zizmor(
-    target: str, *, rule_overrides: dict[str, bool] | None = None
+    target: str,
+    *,
+    rule_overrides: Mapping[str, bool] | None = None,
+    unpinned_uses_policies: Mapping[str, str] | None = None,
 ) -> CheckResult:
     executable, version = _zizmor_executable()
-    rules: dict[str, dict[str, object]] = {
-        "unpinned-uses": {"config": {"policies": {SHARED_WORKFLOW: "ref-pin"}}}
-    }
+    rules: dict[str, dict[str, object]] = {}
+    if unpinned_uses_policies:
+        rules["unpinned-uses"] = {"config": {"policies": dict(unpinned_uses_policies)}}
     for rule_id, disabled in (rule_overrides or {}).items():
         rules.setdefault(rule_id, {})["disable"] = disabled
 

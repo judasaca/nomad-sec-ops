@@ -15,6 +15,9 @@ def test_local_gitlab_scan(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".gitlab-ci.yml").write_text("image: ubuntu:latest\n", encoding="utf-8")
+    (tmp_path / "nomad-sec-ops.yml").write_text(
+        "ci-cd: {rules: {unpinned-images: {disable: true}}}"
+    )
 
     report = static_analysis(provider="gitlab")
 
@@ -72,6 +75,14 @@ def test_local_github_scan(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     assert finding.location == "jobs.test.steps[0].uses"
     assert finding.evidence == "actions/checkout@main"
     assert finding.upstream.documentation_url.endswith("#unpinned-uses")
+    assert capsys.readouterr() == ("", "")
+
+    unified = tmp_path / "nomad-sec-ops.yml"
+    unified.write_text("ci-cd: {rules: {unpinned-uses: {disable: true}}}")
+    overridden = static_analysis(tmp_path)
+
+    assert overridden.exit_code == 0
+    assert overridden.steps[0].result.findings == []
     assert capsys.readouterr() == ("", "")
 
 

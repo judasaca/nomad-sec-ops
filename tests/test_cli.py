@@ -291,7 +291,7 @@ def test_remote_target(
         (checkout / ".gitlab-ci.yml").write_text("build: {script: [echo ok]}")
         rule_id = "template-injection" if valid_config else "typo"
         config = f"rules: {{{rule_id}: {{disable: true}}}}"
-        (checkout / "nomad-sec-ops-ci-cd.yml").write_text(config)
+        (checkout / "nomad-sec-ops.yml").write_text(f"ci-cd: {{{config}}}")
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr("nomad_sec_ops.repositories.subprocess.run", run_git)
@@ -300,7 +300,7 @@ def test_remote_target(
             status=AnalysisStatus.PASSED, message="zizmor", stdout="audit output\n"
         )
     )
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", scanner)
     args = ["static-analysis", option, repo]
     if provider is not None:
         args.extend(("--provider", provider))
@@ -309,7 +309,8 @@ def test_remote_target(
 
     result = runner.invoke(app, args)
 
-    assert result.exit_code == (0 if valid_config else 3)
+    invalid_github_config = "github.com" in repo and not valid_config
+    assert result.exit_code == (3 if invalid_github_config else 0)
     assert f"Remote repository: {label}" in result.output
     assert f"Branch: {branch or 'main'}" in result.output
     assert result.output.index("Commit: a1b2c3d") < result.output.index("Running")
@@ -319,13 +320,17 @@ def test_remote_target(
     assert checkouts[0].is_relative_to(root)
     assert list(root.iterdir()) == [root / ".gitignore"]
     assert (root / ".gitignore").read_text() == "*\n"
-    if not valid_config:
+    if invalid_github_config:
         scanner.assert_not_called()
         assert "Unknown rule IDs 'typo'" in result.stderr
         assert "CI/CD skipped" in result.output
     elif "github.com" in repo:
         scanner.assert_called_once_with(
-            str(checkouts[0]), rule_overrides={"template-injection": True}
+            str(checkouts[0]),
+            rule_overrides={"unpinned-uses": False, "template-injection": True},
+            unpinned_uses_policies={
+                "judasaca/nomad-sec-ops/.github/workflows/security-scan.yml": "ref-pin"
+            },
         )
         assert "audit output" in result.output
     else:
@@ -347,7 +352,7 @@ def test_failed_download_cleans_up_and_skips_scanning(
 
     monkeypatch.setattr("nomad_sec_ops.repositories.subprocess.run", clone)
     scanner = Mock()
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", scanner)
+    monkeypatch.setattr("nomad_sec_ops.scanners.github.run_zizmor", scanner)
 
     args = ["static-analysis", "--repo", "https://github.com/org/repo.git"]
     if branch is not None:

@@ -1,0 +1,8 @@
+# Defaults shipped with Nomad SecOps. Scanned repositories can override individual
+# settings in their own nomad-sec-ops.yml.
+ci-cd:
+  rules:
+    unpinned-uses:
+      disable: false
+      policies:
+        "judasaca/nomad-sec-ops/.github/workflows/security-scan.yml": ref-pin

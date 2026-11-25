@@ -92,7 +92,7 @@ Other workflow and action references still follow zizmor's SHA pinning policy.
 
 The job fails on any nonzero [exit code](#exit-codes), including when the scan
 reports findings or cannot fully evaluate a check. To configure the audit rules,
-add `nomad-sec-ops-ci-cd.yml` at the root of the repository being scanned.
+add `nomad-sec-ops.yml` at the root of the repository being scanned.
 
 ### Python API
 
@@ -132,26 +132,37 @@ per-step statuses in the returned `AnalysisReport`. The computed
 `report.exit_code` follows the CLI's exit code rules and is available on the
 Python model.
 
-### CI/CD settings
+### Repository configuration
 
-Nomad SecOps looks for an optional `nomad-sec-ops-ci-cd.yml` in the directory
-being scanned, including a downloaded checkout. The settings use zizmor rule IDs
-and accept a boolean `disable` field for each listed rule.
+Nomad SecOps ships the defaults from [`nomad-sec-ops.yml`](nomad-sec-ops.yml).
+For GitHub Actions scans, place an optional file with the same name at the root
+of the scanned checkout to override individual settings.
 
 ```yaml
-rules:
-  unpinned-images:
-    disable: true
+ci-cd:
+  rules:
+    unpinned-images:
+      disable: true
+    unpinned-uses:
+      policies:
+        "judasaca/nomad-sec-ops/.github/workflows/security-scan.yml": ref-pin
 ```
 
-For GitHub Actions, `disable: true` skips the named zizmor audit. Omit the file or
-use `rules: {}` to leave all applicable audits enabled. Nomad SecOps combines the
-validated `disable` settings with its built-in shared workflow policy before
-running zizmor. The scan ignores repository `zizmor.yml` files, `ZIZMOR_CONFIG`,
-and inline zizmor ignore comments.
+Use zizmor rule IDs under `ci-cd.rules`. Set `disable: true` to skip a rule or
+`disable: false` to enable it. For `unpinned-uses`, each entry in `policies`
+sets the requirement for a repository pattern. The accepted values are
+`hash-pin`, `ref-pin`, and `any`. The shared workflow uses `ref-pin` by default,
+which accepts a branch, tag, or commit SHA. See the
+[zizmor repository pattern syntax](https://docs.zizmor.sh/configuration/#repository-patterns).
 
-If the file is unreadable or invalid, the CI/CD step is reported as not evaluated
-with a warning, and any other analysis steps continue.
+Omitted rules, fields, and policy entries inherit their shipped defaults. An
+empty mapping also inherits the corresponding defaults.
+
+An unreadable configuration file or invalid settings schema marks CI/CD as not
+evaluated and allows other analysis steps to continue.
+
+The GitHub scan ignores repository `zizmor.yml` files, `ZIZMOR_CONFIG`, and
+inline zizmor ignore comments.
 
 ### Exit codes
 
@@ -175,8 +186,6 @@ When outcomes are combined, precedence is `2`, then `1`, then `3`, then `0`.
 - The GitLab image-pinning check reads declarations from the local
   `.gitlab-ci.yml`. It does not resolve included files, YAML merge keys,
   `!reference` tags, or image references that depend on CI/CD variables.
-- GitLab CI validates the settings file. Rule overrides currently apply to
-  GitHub Actions.
 - PyYAML silently keeps the last value for a duplicate key, so earlier values are
   discarded before validation. Duplicate-key detection could be added through an
   upstream fix or a separate verification step.

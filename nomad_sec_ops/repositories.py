@@ -49,6 +49,7 @@ class RepositoryTarget:
     local_path: Path | None
     remote: RemoteRepository | None
     provider: RepositoryProvider | None = None
+    root_path: Path | None = None
 
     @property
     def hosting_provider(self) -> RepositoryProvider | None:
@@ -106,7 +107,7 @@ def resolve_target(
         with checkout_repository(
             repo, remote, branch=branch, root=checkout_root
         ) as local_path:
-            yield replace(target, local_path=local_path)
+            yield replace(target, local_path=local_path, root_path=local_path)
         return
 
     try:
@@ -117,7 +118,8 @@ def resolve_target(
         raise InvalidTargetError(
             f"Path must be a readable directory: {local_path}", parameter="path"
         )
-    yield RepositoryTarget(local_path, local_remote(local_path), provider)
+    root_path, remote = _local_repository(local_path)
+    yield RepositoryTarget(local_path, remote, provider, root_path=root_path)
 
 
 @contextmanager
@@ -229,15 +231,22 @@ def parse_remote(url: str) -> RemoteRepository:
 
 def local_remote(path: Path) -> RemoteRepository | None:
     """Use origin as the authoritative host, including from nested directories."""
+    _, remote = _local_repository(path)
+    return remote
+
+
+def _local_repository(path: Path) -> tuple[Path | None, RemoteRepository | None]:
     result = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"],
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
+        errors="surrogateescape",
         timeout=10,
         check=False,
     )
-    if result.returncode != 0 or result.stdout.strip() != "true":
-        return None
+    if result.returncode != 0:
+        return None, None
+    root = Path(result.stdout.removesuffix("\n"))
     result = subprocess.run(
         ["git", "-C", str(path), "config", "--get", "remote.origin.url"],
         capture_output=True,
@@ -246,7 +255,7 @@ def local_remote(path: Path) -> RemoteRepository | None:
         check=False,
     )
     if result.returncode == 1:
-        return None
+        return root, None
     if result.returncode != 0:
         raise ValueError("Could not read the repository's origin URL.")
-    return parse_remote(result.stdout.strip())
+    return root, parse_remote(result.stdout.strip())

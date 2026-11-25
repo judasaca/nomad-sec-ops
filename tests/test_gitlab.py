@@ -30,13 +30,13 @@ def test_gitlab_dispatch(
     )
     result = CheckResult(status=AnalysisStatus.NOT_EVALUATED, message="scaffold")
     gitlab = Mock(return_value=result)
-    zizmor = Mock()
+    github = Mock()
     monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_gitlab", gitlab)
-    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_zizmor", zizmor)
+    monkeypatch.setattr("nomad_sec_ops.steps.ci_cd.run_github", github)
 
     assert CICDAnalysis().run(target) == result
     gitlab.assert_called_once_with(target)
-    zizmor.assert_not_called()
+    github.assert_not_called()
 
 
 def test_self_hosted_cli(tmp_path: Path) -> None:
