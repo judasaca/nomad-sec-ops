@@ -15,6 +15,8 @@ from nomad_sec_ops.repositories import (
 from nomad_sec_ops.steps import AnalysisStep as AnalysisStep
 from nomad_sec_ops.steps import execute_step
 from nomad_sec_ops.steps.ci_cd import CICDAnalysis
+from nomad_sec_ops.steps.python_dependencies import PythonDependencies
+from nomad_sec_ops.steps.repository_settings import RepositorySettingsAnalysis
 
 
 class AnalysisError(RuntimeError):
@@ -92,7 +94,9 @@ def analyze_repository(
 ) -> AnalysisReport:
     """A skipped or failed step does not stop the remaining repository checks."""
     selected_steps: Sequence[AnalysisStep] = (
-        (CICDAnalysis(),) if steps is None else steps
+        (CICDAnalysis(), PythonDependencies(), RepositorySettingsAnalysis())
+        if steps is None
+        else steps
     )
     results: list[StepResult] = []
     for step in selected_steps:

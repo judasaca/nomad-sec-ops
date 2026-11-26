@@ -27,6 +27,11 @@ def test_local_gitlab_scan(
     assert report.repository.local_path == tmp_path
     assert report.repository.provider == "gitlab"
     assert report.steps[0].result.findings[0].file == ".gitlab-ci.yml"
+    settings = next(
+        step.result for step in report.steps if step.name == "repository-settings"
+    )
+    assert settings.status == AnalysisStatus.SKIPPED
+    assert settings.findings == []
     payload = report.model_dump_json()
     assert AnalysisReport.model_validate_json(payload) == report
     assert capsys.readouterr() == ("", "")

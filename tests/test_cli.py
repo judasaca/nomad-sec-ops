@@ -14,6 +14,7 @@ from nomad_sec_ops.models import (
     AnalysisReport,
     AnalysisStatus,
     CheckResult,
+    DependencyAudit,
     Finding,
     StepResult,
 )
@@ -75,6 +76,7 @@ def test_target_help() -> None:
     assert "--path" in result.output
     assert "--repo" in result.output
     assert "--branch" in result.output
+    assert "--quiet" in result.output
     assert "Local project directory." in result.output
 
 
@@ -165,6 +167,70 @@ def test_findings_grouped_across_steps(
             "Total findings: 5 (High: 2, Medium: 1, Low: 1, Informational: 1)"
             in result.stdout
         )
+
+
+@pytest.mark.parametrize("flags", [["--quiet"], ["-q", "--verbose"]])
+def test_quiet_keeps_progress_and_finding_totals(
+    flags: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "pyproject.toml").touch()
+    (tmp_path / "uv.lock").touch()
+    (tmp_path / ".gitlab-ci.yml").write_text("image: ubuntu:latest\n")
+    sleep = Mock()
+    monkeypatch.setattr("nomad_sec_ops.demo.sleep", sleep)
+    audit = DependencyAudit.model_validate(
+        {
+            "audited_packages": 1,
+            "vulnerabilities": [
+                {
+                    "dependency": {"name": "example", "version": "1.0"},
+                    "id": "PYSEC-test",
+                    "summary": "Example vulnerability",
+                    "link": "https://example.com/advisory",
+                    "fix_versions": ["1.1"],
+                }
+            ],
+            "adverse_statuses": [],
+        }
+    )
+    monkeypatch.setattr(
+        "nomad_sec_ops.steps.python_dependencies.run_uv_audit",
+        Mock(
+            return_value=CheckResult(
+                status=AnalysisStatus.FINDINGS,
+                message="uv audit checked 1 package(s) (vulnerabilities: 1).",
+                dependency_audit=audit,
+            )
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        ["static-analysis", "--path", str(tmp_path), "--provider", "gitlab", "--demo"]
+        + flags,
+    )
+
+    assert result.exit_code == 1
+    assert f"Local path: {tmp_path.resolve()}" in result.stdout
+    assert "Branch: unavailable" in result.stdout
+    assert "Commit: unavailable" in result.stdout
+    assert "Demo mode:" in result.stdout
+    assert "Found pyproject.toml and uv.lock. Auditing Python dependencies..." in (
+        result.stderr
+    )
+    assert "[python-dependencies] findings" in result.stderr
+    assert "vulnerabilities: 1" in result.stdout
+    assert "PYSEC-test" not in result.output
+    assert "Running [ci-cd]..." in result.stderr
+    assert "[ci-cd] findings" in result.stderr
+    assert "[ci-cd] GitLab CI/CD: 1 rule(s) completed (findings)." in result.stdout
+    assert "Total findings: 1 (High: 1, Medium: 0, Low: 0, Informational: 0)" in (
+        result.stdout
+    )
+    assert "High severity" not in result.output
+    assert ".gitlab-ci.yml" not in result.output
+    assert "[unpinned-images]" not in result.output
+    assert sleep.call_count == 2
 
 
 def test_default_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

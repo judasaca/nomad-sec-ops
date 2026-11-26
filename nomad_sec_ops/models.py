@@ -43,6 +43,31 @@ class Finding(BaseModel):
     upstream: UpstreamRule
 
 
+class AuditedDependency(BaseModel):
+    name: str
+    version: str
+
+
+class DependencyVulnerability(BaseModel):
+    dependency: AuditedDependency
+    id: str
+    summary: str | None
+    link: str
+    fix_versions: list[str]
+
+
+class DependencyProjectStatus(BaseModel):
+    name: str
+    status: str
+    reason: str | None
+
+
+class DependencyAudit(BaseModel):
+    audited_packages: int = Field(ge=0, strict=True)
+    vulnerabilities: list[DependencyVulnerability]
+    adverse_statuses: list[DependencyProjectStatus]
+
+
 class CheckResult(BaseModel):
     status: AnalysisStatus
     message: str
@@ -50,6 +75,7 @@ class CheckResult(BaseModel):
     stdout: str = ""
     stderr: str = ""
     findings: list[Finding] = Field(default_factory=list)
+    dependency_audit: DependencyAudit | None = None
 
 
 class StepResult(BaseModel):

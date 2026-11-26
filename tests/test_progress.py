@@ -49,12 +49,16 @@ def test_demo_cli(
 
     assert result.exit_code == exit_code
     assert "Running [ci-cd]" in result.stderr
+    assert "[repository-settings] skipped" in result.stderr
+    assert "Repository settings checks are planned." in result.stdout
     if color:
         assert f"\x1b[{ansi_color}m\x1b[1m[ci-cd]" in result.output
     else:
         assert "\x1b[" not in result.output
+    assert "No pyproject.toml found at the repository root." in result.stdout
+    assert "Auditing Python dependencies" not in result.stderr
     if demo:
-        assert sleep.call_args_list == [call(4.0)] * 3
+        assert sleep.call_args_list == [call(4.0)] * 2
         assert "Demo mode:" in result.output
         for name in ["npm-dependencies", "python-dependencies", "docker"]:
             assert result.stderr.index(f"[{name}] skipped") < result.stderr.index(
@@ -63,11 +67,46 @@ def test_demo_cli(
             assert f"[{name}] skipped" in result.stderr
             if color:
                 assert f"\x1b[90m\x1b[1m[{name}]" in result.stdout
-        assert result.stdout.count("No security scan performed.") == 3
+        assert result.stdout.count("No security scan performed.") == 2
     else:
         sleep.assert_not_called()
         assert "Demo mode:" not in result.output
         assert "npm-dependencies" not in result.output
+
+
+def test_cli_reports_python_manifest_before_auditing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pyproject.toml").touch()
+    (tmp_path / "uv.lock").touch()
+    monkeypatch.setattr(
+        "nomad_sec_ops.steps.ci_cd.run_gitlab",
+        Mock(
+            return_value=CheckResult(
+                status=AnalysisStatus.PASSED, message="CI/CD passed"
+            )
+        ),
+    )
+
+    def check_progress(root: Path) -> CheckResult:
+        assert root == tmp_path
+        assert "Found pyproject.toml and uv.lock. Auditing Python dependencies..." in (
+            capsys.readouterr().err
+        )
+        return CheckResult(status=AnalysisStatus.PASSED, message="uv audit completed")
+
+    audit = Mock(side_effect=check_progress)
+    monkeypatch.setattr("nomad_sec_ops.steps.python_dependencies.run_uv_audit", audit)
+
+    app(
+        ["static-analysis", "--path", str(tmp_path), "--provider", "gitlab"],
+        standalone_mode=False,
+    )
+
+    audit.assert_called_once_with(tmp_path)
+    stdout, stderr = capsys.readouterr()
+    assert "[python-dependencies] passed" in stderr
+    assert "[python-dependencies] uv audit completed" in stdout
 
 
 @pytest.mark.parametrize("interactive", [False, True])

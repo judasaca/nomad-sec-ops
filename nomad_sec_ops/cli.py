@@ -4,11 +4,18 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.console import Console
 
 from nomad_sec_ops import __version__
 from nomad_sec_ops.analysis import AnalysisError, _run_static_analysis
 from nomad_sec_ops.equivalence import build_equivalence_report
-from nomad_sec_ops.models import AnalysisReport, AnalysisStatus, Finding, RepositoryInfo
+from nomad_sec_ops.models import (
+    AnalysisReport,
+    AnalysisStatus,
+    DependencyAudit,
+    Finding,
+    RepositoryInfo,
+)
 from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
 from nomad_sec_ops.repositories import (
     DEFAULT_CHECKOUT_ROOT,
@@ -21,6 +28,7 @@ from nomad_sec_ops.steps.ci_cd import CICDAnalysis
 from nomad_sec_ops.steps.docker import DockerAnalysis
 from nomad_sec_ops.steps.npm_dependencies import NpmDependencies
 from nomad_sec_ops.steps.python_dependencies import PythonDependencies
+from nomad_sec_ops.steps.repository_settings import RepositorySettingsAnalysis
 
 app = typer.Typer(
     name="nomadsecops",
@@ -37,7 +45,7 @@ SEVERITY_COLORS = {
 }
 
 
-def _show_findings(report: AnalysisReport, *, verbose: bool) -> None:
+def _show_findings(report: AnalysisReport, *, verbose: bool, quiet: bool) -> None:
     groups: dict[str, list[tuple[Finding, str | None]]] = {
         severity: [] for severity in SEVERITY_COLORS
     }
@@ -50,7 +58,7 @@ def _show_findings(report: AnalysisReport, *, verbose: bool) -> None:
         color = SEVERITY_COLORS[severity]
         label = severity.capitalize()
         counts.append(typer.style(f"{label}: {len(findings)}", fg=color, bold=True))
-        if not findings:
+        if quiet or not findings:
             continue
         heading = typer.style(f"{label} severity", fg=color, bold=True)
         typer.echo(f"\n{heading}")
@@ -78,6 +86,23 @@ def _show_findings(report: AnalysisReport, *, verbose: bool) -> None:
 
     total = sum(len(findings) for findings in groups.values())
     typer.echo(f"Total findings: {total} ({', '.join(counts)})")
+
+
+def _show_dependency_audit(audit: DependencyAudit, *, verbose: bool) -> None:
+    for vulnerability in audit.vulnerabilities:
+        dependency = vulnerability.dependency
+        summary = " ".join((vulnerability.summary or "").split())
+        typer.echo(
+            f"  [{vulnerability.id}] {dependency.name}=={dependency.version} "
+            f"{summary}  {vulnerability.link}"
+        )
+        if verbose:
+            fixes = ", ".join(vulnerability.fix_versions)
+            typer.echo(f"    Fixed versions: {fixes or 'none reported'}")
+    for project in audit.adverse_statuses:
+        reason = " ".join((project.reason or "").split())
+        status = f"{project.name} is {project.status}"
+        typer.echo(f"  {status}: {reason}" if reason else f"  {status}")
 
 
 @app.callback(invoke_without_command=True)
@@ -161,7 +186,7 @@ def static_analysis(
         bool,
         typer.Option(
             "--demo",
-            help="Add simulated npm, Python, and Docker steps (four seconds each).",
+            help="Add simulated npm and Docker steps (four seconds each).",
         ),
     ] = False,
     verbose: Annotated[
@@ -170,8 +195,15 @@ def static_analysis(
             "--verbose", "-v", help="Show detailed findings and scanner output."
         ),
     ] = False,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet", "-q", help="Show finding totals without individual findings."
+        ),
+    ] = False,
 ) -> None:
     """Run applicable security checks on a local or remote repository."""
+    verbose = verbose and not quiet
 
     def show_target(repository: RepositoryInfo) -> None:
         if repo is not None:
@@ -185,12 +217,14 @@ def static_analysis(
         typer.echo(f"Commit: {repository.commit or 'unavailable'}")
 
     def run_checks(target: RepositoryTarget) -> AnalysisReport:
-        steps: list[AnalysisStep] = []
+        console = Console(stderr=True, highlight=False)
+        python_dependencies = PythonDependencies(on_scan=console.print)
+        steps: list[AnalysisStep] = [python_dependencies]
         if demo:
-            typer.echo("Demo mode: npm, Python, and Docker steps simulate work only.")
-            steps.extend((NpmDependencies(), PythonDependencies(), DockerAnalysis()))
-        steps.append(CICDAnalysis())
-        return run_with_progress(target, steps)
+            typer.echo("Demo mode: npm and Docker steps simulate work only.")
+            steps = [NpmDependencies(), python_dependencies, DockerAnalysis()]
+        steps.extend((CICDAnalysis(), RepositorySettingsAnalysis()))
+        return run_with_progress(target, steps, console=console)
 
     try:
         report = _run_static_analysis(
@@ -220,6 +254,8 @@ def static_analysis(
             f"{step_name} {result.message}",
             err=result.status == AnalysisStatus.ERROR,
         )
+        if result.dependency_audit is not None and not quiet:
+            _show_dependency_audit(result.dependency_audit, verbose=verbose)
         # GitLab includes preformatted findings in stdout.
         if (
             result.stdout
@@ -229,5 +265,5 @@ def static_analysis(
             typer.echo(result.stdout, nl=False)
         if result.stderr:
             typer.echo(result.stderr, nl=False, err=True)
-    _show_findings(report, verbose=verbose)
+    _show_findings(report, verbose=verbose, quiet=quiet)
     raise typer.Exit(report.exit_code)
