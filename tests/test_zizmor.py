@@ -169,11 +169,11 @@ def test_missing_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     ("scanner_code", "expected"),
     [(0, 0), (11, 1), (12, 1), (13, 1), (14, 1), (1, 2), (2, 2), (3, 3), (-9, 2)],
 )
-@pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("mode", [None, "--verbose", "--quiet"])
 def test_scanner_exit_codes(
     scanner_code: int,
     expected: int,
-    verbose: bool,
+    mode: str | None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -211,18 +211,21 @@ def test_scanner_exit_codes(
     monkeypatch.setattr("nomad_sec_ops.scanners.zizmor.subprocess", Mock(run=scanner))
 
     args = ["static-analysis", "--path", str(tmp_path)]
-    if verbose:
-        args.append("--verbose")
+    if mode:
+        args.append(mode)
     result = runner.invoke(app, args)
 
     assert result.exit_code == expected
     assert ("scanner stdout" in result.stdout) == (expected in {2, 3})
     assert f"Total findings: {int(expected == 1)}" in result.stdout
+    assert ("[ci-cd] zizmor: 1 finding." in result.stdout) == (expected == 1)
+    assert ("[ci-cd] zizmor: 0 findings." in result.stdout) == (expected == 0)
     compact = (
         "action.yml:1: [unpinned-uses] unpinned action reference: pin this action  "
         "https://docs.zizmor.sh/audits/#unpinned-uses"
     )
-    assert (compact in result.stdout) == (expected == 1 and not verbose)
+    assert (compact in result.stdout) == (expected == 1 and mode is None)
+    verbose = mode == "--verbose"
     assert ("action.yml:1:1: high[unpinned-uses]" in result.stdout) == (
         expected == 1 and verbose
     )
@@ -327,7 +330,7 @@ def test_real_successful_offline_scan(
     result = runner.invoke(app, ["static-analysis", "--path", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "zizmor: no findings." in result.stdout
+    assert "zizmor: 0 findings." in result.stdout
     assert "No findings to report." not in result.stdout
     assert "INFO" not in result.stderr
     assert "running in offline mode by default" not in result.stderr

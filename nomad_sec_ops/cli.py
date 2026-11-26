@@ -105,7 +105,8 @@ def _show_findings(report: AnalysisReport, *, verbose: bool, quiet: bool) -> Non
             _show_finding(finding, tool, verbose=verbose)
 
     total = sum(len(findings) for findings in groups.values())
-    typer.echo(f"Total findings: {total} ({', '.join(counts)})")
+    headline = typer.style(f"Total findings: {total}", bold=True)
+    typer.echo(f"\n{headline} ({', '.join(counts)})")
 
 
 @app.callback(invoke_without_command=True)

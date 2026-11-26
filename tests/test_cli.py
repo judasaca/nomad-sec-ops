@@ -157,6 +157,7 @@ def test_findings_grouped_across_steps(
     assert offsets == sorted(offsets)
     assert result.stdout.count("High severity") == 1
     if color:
+        assert "\x1b[1mTotal findings: 5\x1b[0m" in result.stdout
         for ansi, label, count in [
             (31, "High", 2),
             (33, "Medium", 1),
@@ -219,9 +220,12 @@ def test_dependency_findings_output(
     assert "vulnerabilities: 1" in result.stdout
     assert "Running [ci-cd]..." in result.stderr
     assert "[ci-cd] findings" in result.stderr
-    assert "[ci-cd] GitLab CI/CD: 1 rule(s) completed (findings)." in result.stdout
     assert (
-        "Total findings: 3 (High: 1, Medium: 0, Low: 0, Informational: 0, "
+        "[ci-cd] GitLab CI/CD: 1 rule(s) completed (findings). Findings: 1."
+        in result.stdout
+    )
+    assert (
+        "\n\nTotal findings: 3 (High: 1, Medium: 0, Low: 0, Informational: 0, "
         "Severity unavailable: 2)" in result.stdout
     )
     quiet = "--quiet" in flags or "-q" in flags

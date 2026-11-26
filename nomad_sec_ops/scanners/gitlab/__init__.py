@@ -36,14 +36,18 @@ def run_gitlab(
         2: AnalysisStatus.ERROR,
         3: AnalysisStatus.NOT_EVALUATED,
     }[report.exit_code]
+    findings = [finding for item in results for finding in item.result.findings]
+    message = f"GitLab CI/CD: {len(results)} rule(s) completed ({status.value})."
+    if findings or status == AnalysisStatus.PASSED:
+        message += f" Findings: {len(findings)}."
     return CheckResult(
         status=status,
-        message=f"GitLab CI/CD: {len(results)} rule(s) completed ({status.value}).",
+        message=message,
         tool="gitlab-ci",
         stdout="".join(
             f"[{item.name}] {item.result.message}\n{item.result.stdout}"
             for item in results
         ),
         stderr="".join(item.result.stderr for item in results),
-        findings=[finding for item in results for finding in item.result.findings],
+        findings=findings,
     )

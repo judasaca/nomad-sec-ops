@@ -143,16 +143,17 @@ def run_zizmor(
     stdout = result.stdout
     if result.returncode == 0:
         status = AnalysisStatus.PASSED
-        message = "zizmor: no findings."
+        message = "zizmor: 0 findings."
     elif result.returncode in {11, 12, 13, 14}:
         status = AnalysisStatus.FINDINGS
-        message = "zizmor: security findings detected."
         try:
             findings = _parse_findings(result.stdout, Path(target).absolute(), version)
         except (AttributeError, KeyError, TypeError, ValueError) as error:
             status = AnalysisStatus.ERROR
             message = f"Could not read zizmor findings: {error}"
         else:
+            count = len(findings)
+            message = f"zizmor: {count} {'finding' if count == 1 else 'findings'}."
             stdout = ""
     elif result.returncode == 3:
         status = AnalysisStatus.NOT_EVALUATED
