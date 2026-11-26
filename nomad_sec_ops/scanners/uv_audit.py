@@ -1,10 +1,40 @@
 """Run uv's lockfile audit and validate its JSON report."""
 
-import json
 import subprocess
 from pathlib import Path
+from typing import Annotated
 
-from nomad_sec_ops.models import AnalysisStatus, CheckResult, DependencyAudit
+from pydantic import BaseModel, Field
+
+from nomad_sec_ops.models import (
+    AnalysisStatus,
+    CheckResult,
+    DependencyAudit,
+    DependencyProjectStatus,
+    DependencyProjectStatusFinding,
+    DependencyVulnerabilityFinding,
+    DependencyVulnerabilityMetadata,
+    Finding,
+)
+
+type _Count = Annotated[int, Field(ge=0, strict=True)]
+
+
+class _AuditSummary(BaseModel):
+    audited_packages: _Count
+    vulnerabilities: _Count
+    adverse_statuses: _Count
+
+
+class _Vulnerability(DependencyVulnerabilityMetadata):
+    id: str
+    summary: str | None = None
+
+
+class _AuditOutput(BaseModel):
+    summary: _AuditSummary
+    vulnerabilities: list[_Vulnerability]
+    adverse_statuses: list[DependencyProjectStatus]
 
 
 def run_uv_audit(root: Path) -> CheckResult:
@@ -32,22 +62,16 @@ def run_uv_audit(root: Path) -> CheckResult:
     try:
         if result.returncode not in {0, 1} or not result.stdout.strip():
             raise ValueError(f"uv exited with code {result.returncode}")
-        output = json.loads(result.stdout)
-        summary = output["summary"]
-        audit = DependencyAudit(
-            audited_packages=summary["audited_packages"],
-            vulnerabilities=output["vulnerabilities"],
-            adverse_statuses=output["adverse_statuses"],
-        )
-        vulnerability_count = len(audit.vulnerabilities)
-        adverse_count = len(audit.adverse_statuses)
+        output = _AuditOutput.model_validate_json(result.stdout)
+        vulnerability_count = len(output.vulnerabilities)
+        adverse_count = len(output.adverse_statuses)
         if (
-            summary["vulnerabilities"] != vulnerability_count
-            or summary["adverse_statuses"] != adverse_count
+            output.summary.vulnerabilities != vulnerability_count
+            or output.summary.adverse_statuses != adverse_count
             or result.returncode != int(vulnerability_count > 0)
         ):
             raise ValueError("report counts do not match its findings or exit code")
-    except (KeyError, TypeError, ValueError) as error:
+    except ValueError as error:
         return CheckResult(
             status=AnalysisStatus.ERROR,
             message=f"uv audit failed ({error}).",
@@ -55,15 +79,51 @@ def run_uv_audit(root: Path) -> CheckResult:
             stderr=result.stderr,
         )
 
-    status = AnalysisStatus.FINDINGS if vulnerability_count else AnalysisStatus.PASSED
+    findings: list[Finding] = []
+    for vulnerability in output.vulnerabilities:
+        dependency = vulnerability.dependency
+        findings.append(
+            DependencyVulnerabilityFinding(
+                kind="dependency-vulnerability",
+                message=(
+                    vulnerability.summary
+                    or f"Known vulnerability in {dependency.name} {dependency.version}"
+                ),
+                severity=None,
+                advisory_id=vulnerability.id,
+                metadata=DependencyVulnerabilityMetadata(
+                    dependency=dependency,
+                    link=vulnerability.link,
+                    fix_versions=vulnerability.fix_versions,
+                ),
+            )
+        )
+    adverse_statuses = []
+    for project in output.adverse_statuses:
+        if project.status == "deprecated":
+            findings.append(
+                DependencyProjectStatusFinding(
+                    kind="dependency-project-status",
+                    message=f"{project.name} is deprecated",
+                    severity=None,
+                    metadata=project,
+                )
+            )
+        else:
+            adverse_statuses.append(project)
+
     return CheckResult(
-        status=status,
+        status=AnalysisStatus.FINDINGS if findings else AnalysisStatus.PASSED,
         message=(
-            f"uv audit checked {audit.audited_packages} package(s) "
+            f"uv audit checked {output.summary.audited_packages} package(s) "
             f"(vulnerabilities: {vulnerability_count}, "
             f"adverse project statuses: {adverse_count})."
         ),
         tool="uv",
         stderr=result.stderr,
-        dependency_audit=audit,
+        findings=findings,
+        dependency_audit=DependencyAudit(
+            audited_packages=output.summary.audited_packages,
+            adverse_statuses=adverse_statuses,
+        ),
     )

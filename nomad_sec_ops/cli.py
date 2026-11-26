@@ -12,8 +12,8 @@ from nomad_sec_ops.equivalence import build_equivalence_report
 from nomad_sec_ops.models import (
     AnalysisReport,
     AnalysisStatus,
-    DependencyAudit,
     Finding,
+    FindingSeverity,
     RepositoryInfo,
 )
 from nomad_sec_ops.progress import STATUS_COLORS, run_with_progress
@@ -37,16 +37,55 @@ app = typer.Typer(
     add_completion=False,
 )
 
-SEVERITY_COLORS = {
+SEVERITY_COLORS: dict[FindingSeverity | None, str | None] = {
     "high": "red",
     "medium": "yellow",
     "low": "cyan",
     "informational": "bright_blue",
+    None: None,
 }
 
 
+def _show_finding(finding: Finding, tool: str | None, *, verbose: bool) -> None:
+    message = " ".join(finding.message.split())
+    if finding.kind == "ci-cd":
+        metadata = finding.metadata
+        if verbose:
+            details = (
+                f" ({metadata.location}; confidence: {metadata.confidence})"
+                if tool == "gitlab-ci"
+                else ""
+            )
+            typer.echo(
+                f"{metadata.file}:{metadata.line}:{metadata.column}: "
+                f"{finding.severity}[{metadata.rule_id}] {finding.message}{details}"
+            )
+            if metadata.evidence:
+                evidence_label = "image: " if tool == "gitlab-ci" else ""
+                typer.echo(f"  {evidence_label}{metadata.evidence}")
+            typer.echo(f"  fix: {metadata.remediation}")
+        else:
+            typer.echo(
+                f"{metadata.file}:{metadata.line}: [{metadata.rule_id}] {message}  "
+                f"{metadata.upstream.documentation_url}"
+            )
+    elif finding.kind == "dependency-vulnerability":
+        dependency = finding.metadata.dependency
+        advisory = f"[{finding.advisory_id}] " if finding.advisory_id else ""
+        typer.echo(
+            f"  {advisory}{dependency.name}=={dependency.version} "
+            f"{message}  {finding.metadata.link}"
+        )
+        if verbose:
+            fixes = ", ".join(finding.metadata.fix_versions)
+            typer.echo(f"    Fixed versions: {fixes or 'none reported'}")
+    else:
+        reason = " ".join((finding.metadata.reason or "").split())
+        typer.echo(f"  {message}: {reason}" if reason else f"  {message}")
+
+
 def _show_findings(report: AnalysisReport, *, verbose: bool, quiet: bool) -> None:
-    groups: dict[str, list[tuple[Finding, str | None]]] = {
+    groups: dict[FindingSeverity | None, list[tuple[Finding, str | None]]] = {
         severity: [] for severity in SEVERITY_COLORS
     }
     for step in report.steps:
@@ -56,53 +95,17 @@ def _show_findings(report: AnalysisReport, *, verbose: bool, quiet: bool) -> Non
     counts = []
     for severity, findings in groups.items():
         color = SEVERITY_COLORS[severity]
-        label = severity.capitalize()
+        label = severity.capitalize() if severity else "Severity unavailable"
         counts.append(typer.style(f"{label}: {len(findings)}", fg=color, bold=True))
         if quiet or not findings:
             continue
-        heading = typer.style(f"{label} severity", fg=color, bold=True)
-        typer.echo(f"\n{heading}")
+        heading = f"{label} severity" if severity else label
+        typer.echo(f"\n{typer.style(heading, fg=color, bold=True)}")
         for finding, tool in findings:
-            if verbose:
-                details = (
-                    f" ({finding.location}; confidence: {finding.confidence})"
-                    if tool == "gitlab-ci"
-                    else ""
-                )
-                typer.echo(
-                    f"{finding.file}:{finding.line}:{finding.column}: "
-                    f"{severity}[{finding.rule_id}] {finding.message}{details}"
-                )
-                if finding.evidence:
-                    evidence_label = "image: " if tool == "gitlab-ci" else ""
-                    typer.echo(f"  {evidence_label}{finding.evidence}")
-                typer.echo(f"  fix: {finding.remediation}")
-            else:
-                message = " ".join(finding.message.split())
-                typer.echo(
-                    f"{finding.file}:{finding.line}: [{finding.rule_id}] {message}  "
-                    f"{finding.upstream.documentation_url}"
-                )
+            _show_finding(finding, tool, verbose=verbose)
 
     total = sum(len(findings) for findings in groups.values())
     typer.echo(f"Total findings: {total} ({', '.join(counts)})")
-
-
-def _show_dependency_audit(audit: DependencyAudit, *, verbose: bool) -> None:
-    for vulnerability in audit.vulnerabilities:
-        dependency = vulnerability.dependency
-        summary = " ".join((vulnerability.summary or "").split())
-        typer.echo(
-            f"  [{vulnerability.id}] {dependency.name}=={dependency.version} "
-            f"{summary}  {vulnerability.link}"
-        )
-        if verbose:
-            fixes = ", ".join(vulnerability.fix_versions)
-            typer.echo(f"    Fixed versions: {fixes or 'none reported'}")
-    for project in audit.adverse_statuses:
-        reason = " ".join((project.reason or "").split())
-        status = f"{project.name} is {project.status}"
-        typer.echo(f"  {status}: {reason}" if reason else f"  {status}")
 
 
 @app.callback(invoke_without_command=True)
@@ -255,7 +258,10 @@ def static_analysis(
             err=result.status == AnalysisStatus.ERROR,
         )
         if result.dependency_audit is not None and not quiet:
-            _show_dependency_audit(result.dependency_audit, verbose=verbose)
+            for project in result.dependency_audit.adverse_statuses:
+                reason = " ".join((project.reason or "").split())
+                status = f"{project.name} is {project.status}"
+                typer.echo(f"  {status}: {reason}" if reason else f"  {status}")
         # GitLab includes preformatted findings in stdout.
         if (
             result.stdout

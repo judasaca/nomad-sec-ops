@@ -101,15 +101,26 @@ report = static_analysis("/path/to/checkout", provider="gitlab")
 
 for step in report.steps:
     for finding in step.result.findings:
-        print(f"{finding.file}:{finding.line} {finding.rule_id} {finding.message}")
+        if finding.kind == "ci-cd":
+            rule = finding.metadata
+            print(f"{rule.file}:{rule.line} [{rule.rule_id}] {finding.message}")
+        elif finding.kind == "dependency-vulnerability":
+            package = finding.metadata.dependency
+            print(
+                f"{package.name}=={package.version} [{finding.advisory_id}] {finding.message}"
+            )
+        else:
+            print(finding.message, finding.metadata.reason or "")
 
 payload = report.model_dump(mode="json")
 ```
 
 With neither `path` nor `repo`, the function scans the current directory.
-The call is synchronous and silent. Findings from both providers use paths
-relative to the scanned directory and one-based line and column numbers.
-The Python step exposes its audit results in `step.result.dependency_audit`.
+The call is synchronous and silent. Every step exposes its findings in
+`step.result.findings`. CI/CD finding locations use paths relative to the
+scanned directory and one-based line and column numbers. The Python step keeps
+the audited package count and remaining project statuses in
+`step.result.dependency_audit`.
 `report.repository` records the resolved provider and the available branch and
 abbreviated commit. Remote checkouts use the system temporary directory and are
 removed when the call ends.

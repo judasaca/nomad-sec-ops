@@ -1,5 +1,6 @@
 """Verify the public CLI entry point."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -14,10 +15,12 @@ from nomad_sec_ops.models import (
     AnalysisReport,
     AnalysisStatus,
     CheckResult,
-    DependencyAudit,
-    Finding,
+    CICDFinding,
+    CICDFindingMetadata,
+    FindingSeverity,
     StepResult,
 )
+from nomad_sec_ops.scanners import uv_audit
 from nomad_sec_ops.scanners.gitlab.rules.unpinned_images import UPSTREAM
 
 runner = CliRunner()
@@ -85,20 +88,25 @@ def test_target_help() -> None:
 def test_findings_grouped_across_steps(
     verbose: bool, color: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    finding = Finding(
-        rule_id=UPSTREAM.rule_id,
-        severity="high",
-        confidence="high",
-        persona="regular",
-        file="high-first.yml",
-        line=1,
-        column=1,
-        location="image",
-        message="Example finding",
-        evidence="",
-        remediation="Use an immutable digest.",
-        upstream=UPSTREAM,
-    )
+    def finding(file: str, severity: FindingSeverity) -> CICDFinding:
+        return CICDFinding(
+            kind="ci-cd",
+            severity=severity,
+            message="Example finding",
+            metadata=CICDFindingMetadata(
+                rule_id=UPSTREAM.rule_id,
+                confidence="high",
+                persona="regular",
+                file=file,
+                line=1,
+                column=1,
+                location="image",
+                evidence="",
+                remediation="Use an immutable digest.",
+                upstream=UPSTREAM,
+            ),
+        )
+
     steps = [
         StepResult(
             name="first",
@@ -106,8 +114,8 @@ def test_findings_grouped_across_steps(
                 status=AnalysisStatus.FINDINGS,
                 message="First check",
                 findings=[
-                    finding.model_copy(update={"severity": "low", "file": "low.yml"}),
-                    finding,
+                    finding("low.yml", "low"),
+                    finding("high-first.yml", "high"),
                 ],
             ),
         ),
@@ -117,13 +125,9 @@ def test_findings_grouped_across_steps(
                 status=AnalysisStatus.FINDINGS,
                 message="Second check",
                 findings=[
-                    finding.model_copy(
-                        update={"severity": "medium", "file": "medium.yml"}
-                    ),
-                    finding.model_copy(update={"file": "high-second.yml"}),
-                    finding.model_copy(
-                        update={"severity": "informational", "file": "info.yml"}
-                    ),
+                    finding("medium.yml", "medium"),
+                    finding("high-second.yml", "high"),
+                    finding("info.yml", "informational"),
                 ],
             ),
         ),
@@ -164,13 +168,13 @@ def test_findings_grouped_across_steps(
     else:
         assert "\x1b[" not in result.stdout
         assert (
-            "Total findings: 5 (High: 2, Medium: 1, Low: 1, Informational: 1)"
-            in result.stdout
+            "Total findings: 5 (High: 2, Medium: 1, Low: 1, Informational: 1, "
+            "Severity unavailable: 0)" in result.stdout
         )
 
 
-@pytest.mark.parametrize("flags", [["--quiet"], ["-q", "--verbose"]])
-def test_quiet_keeps_progress_and_finding_totals(
+@pytest.mark.parametrize("flags", [[], ["--verbose"], ["--quiet"], ["-q", "--verbose"]])
+def test_dependency_findings_output(
     flags: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "pyproject.toml").touch()
@@ -178,31 +182,24 @@ def test_quiet_keeps_progress_and_finding_totals(
     (tmp_path / ".gitlab-ci.yml").write_text("image: ubuntu:latest\n")
     sleep = Mock()
     monkeypatch.setattr("nomad_sec_ops.demo.sleep", sleep)
-    audit = DependencyAudit.model_validate(
-        {
-            "audited_packages": 1,
-            "vulnerabilities": [
-                {
-                    "dependency": {"name": "example", "version": "1.0"},
-                    "id": "PYSEC-test",
-                    "summary": "Example vulnerability",
-                    "link": "https://example.com/advisory",
-                    "fix_versions": ["1.1"],
-                }
-            ],
-            "adverse_statuses": [],
-        }
-    )
-    monkeypatch.setattr(
-        "nomad_sec_ops.steps.python_dependencies.run_uv_audit",
-        Mock(
-            return_value=CheckResult(
-                status=AnalysisStatus.FINDINGS,
-                message="uv audit checked 1 package(s) (vulnerabilities: 1).",
-                dependency_audit=audit,
-            )
-        ),
-    )
+    payload = {
+        "summary": {"audited_packages": 3, "vulnerabilities": 1, "adverse_statuses": 2},
+        "vulnerabilities": [
+            {
+                "dependency": {"name": "example", "version": "1.0"},
+                "id": "PYSEC-test",
+                "summary": "Example vulnerability",
+                "link": "https://example.com/advisory",
+                "fix_versions": ["1.1"],
+            }
+        ],
+        "adverse_statuses": [
+            {"name": "legacy-parser", "status": "deprecated", "reason": "Use modern."},
+            {"name": "retired-parser", "status": "archived", "reason": None},
+        ],
+    }
+    run = Mock(return_value=subprocess.CompletedProcess([], 1, json.dumps(payload), ""))
+    monkeypatch.setattr(uv_audit, "subprocess", Mock(run=run))
 
     result = runner.invoke(
         app,
@@ -220,16 +217,28 @@ def test_quiet_keeps_progress_and_finding_totals(
     )
     assert "[python-dependencies] findings" in result.stderr
     assert "vulnerabilities: 1" in result.stdout
-    assert "PYSEC-test" not in result.output
     assert "Running [ci-cd]..." in result.stderr
     assert "[ci-cd] findings" in result.stderr
     assert "[ci-cd] GitLab CI/CD: 1 rule(s) completed (findings)." in result.stdout
-    assert "Total findings: 1 (High: 1, Medium: 0, Low: 0, Informational: 0)" in (
-        result.stdout
+    assert (
+        "Total findings: 3 (High: 1, Medium: 0, Low: 0, Informational: 0, "
+        "Severity unavailable: 2)" in result.stdout
     )
-    assert "High severity" not in result.output
-    assert ".gitlab-ci.yml" not in result.output
-    assert "[unpinned-images]" not in result.output
+    quiet = "--quiet" in flags or "-q" in flags
+    for item in (
+        "High severity",
+        ".gitlab-ci.yml",
+        "[unpinned-images]",
+        "\nSeverity unavailable\n",
+        "[PYSEC-test] example==1.0 Example vulnerability  https://example.com/advisory",
+        "legacy-parser is deprecated: Use modern.",
+        "retired-parser is archived",
+    ):
+        assert (item in result.stdout) is not quiet
+    assert ("Fixed versions: 1.1" in result.stdout) == (
+        "--verbose" in flags and not quiet
+    )
+    assert result.stdout.count("legacy-parser is deprecated") == int(not quiet)
     assert sleep.call_count == 2
 
 

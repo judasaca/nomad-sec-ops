@@ -8,6 +8,7 @@ import pytest
 
 from nomad_sec_ops import AnalysisError, AnalysisReport, static_analysis
 from nomad_sec_ops.models import AnalysisStatus
+from nomad_sec_ops.scanners.zizmor_catalog import ZIZMOR_COMMIT, ZIZMOR_VERSION
 
 
 def test_local_gitlab_scan(
@@ -26,7 +27,9 @@ def test_local_gitlab_scan(
     assert report.repository is not None
     assert report.repository.local_path == tmp_path
     assert report.repository.provider == "gitlab"
-    assert report.steps[0].result.findings[0].file == ".gitlab-ci.yml"
+    finding = report.steps[0].result.findings[0]
+    assert finding.kind == "ci-cd"
+    assert finding.metadata.file == ".gitlab-ci.yml"
     settings = next(
         step.result for step in report.steps if step.name == "repository-settings"
     )
@@ -74,12 +77,25 @@ def test_local_github_scan(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     assert report.repository.provider == "github"
     result = report.steps[0].result
     assert result.status == AnalysisStatus.FINDINGS
-    finding = next(item for item in result.findings if item.rule_id == "unpinned-uses")
-    assert finding.file == ".github/workflows/ci.yml"
-    assert (finding.line, finding.column) == (7, 15)
-    assert finding.location == "jobs.test.steps[0].uses"
-    assert finding.evidence == "actions/checkout@main"
-    assert finding.upstream.documentation_url.endswith("#unpinned-uses")
+    finding = next(
+        item
+        for item in result.findings
+        if item.kind == "ci-cd" and item.metadata.rule_id == "unpinned-uses"
+    )
+    metadata = finding.metadata
+    assert finding.advisory_id is None
+    assert metadata.file == ".github/workflows/ci.yml"
+    assert (metadata.line, metadata.column) == (7, 15)
+    assert metadata.location == "jobs.test.steps[0].uses"
+    assert metadata.evidence == "actions/checkout@main"
+    assert metadata.remediation
+    assert metadata.upstream.tool == "zizmor"
+    assert metadata.upstream.rule_id == "unpinned-uses"
+    assert metadata.upstream.version == ZIZMOR_VERSION
+    assert metadata.upstream.commit == ZIZMOR_COMMIT
+    assert metadata.upstream.source_url is not None
+    assert ZIZMOR_COMMIT in metadata.upstream.source_url
+    assert metadata.upstream.documentation_url.endswith("#unpinned-uses")
     assert capsys.readouterr() == ("", "")
 
     unified = tmp_path / "nomad-sec-ops.yml"
@@ -130,7 +146,9 @@ def test_remote_checkout_lifetime(
         assert report.repository.remote == "gitlab.com/org/repo.git"
         assert report.repository.branch == "main"
         assert report.repository.commit == "a1b2c3d"
-        assert report.steps[0].result.findings[0].file == ".gitlab-ci.yml"
+        finding = report.steps[0].result.findings[0]
+        assert finding.kind == "ci-cd"
+        assert finding.metadata.file == ".gitlab-ci.yml"
     assert list(temporary_directory.iterdir()) == []
     assert list(working_directory.iterdir()) == []
 

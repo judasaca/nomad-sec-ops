@@ -34,11 +34,10 @@ in the CLI. When a fixed version is available, update the locked package with
 `uv lock --upgrade-package <package>` and rerun the scan.
 [uv lockfile upgrades](https://docs.astral.sh/uv/concepts/projects/sync/#upgrading-locked-package-versions)
 
-The uv audit output used by Nomad SecOps provides no severity levels. Any
-reported vulnerability marks the step as `findings`. The step summary lists
-vulnerability and adverse project status counts alongside the number of audited
-packages. The step passes when uv reports only adverse statuses, such as an
-archived project. The CLI's severity totals cover CI/CD findings.
+Vulnerabilities and deprecations are findings. Either yields exit code `1`
+unless an execution error takes precedence. Archived statuses are audit
+metadata. The CLI includes uv findings in its total under
+**Severity unavailable**.
 
 ## Configuration
 

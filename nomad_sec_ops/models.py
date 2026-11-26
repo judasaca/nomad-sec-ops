@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -28,19 +28,32 @@ class UpstreamRule(BaseModel):
     documentation_url: str
 
 
-class Finding(BaseModel):
+type FindingSeverity = Literal["informational", "low", "medium", "high"]
+
+
+class _Finding(BaseModel):
+    message: str
+    severity: FindingSeverity | None
+    advisory_id: str | None = None
+
+
+class CICDFindingMetadata(BaseModel):
     rule_id: str
-    severity: Literal["informational", "low", "medium", "high"]
     confidence: Literal["low", "medium", "high"]
     persona: Literal["regular", "pedantic"]
     file: str
     line: int
     column: int
     location: str
-    message: str
     evidence: str
     remediation: str
     upstream: UpstreamRule
+
+
+class CICDFinding(_Finding):
+    kind: Literal["ci-cd"]
+    severity: FindingSeverity
+    metadata: CICDFindingMetadata
 
 
 class AuditedDependency(BaseModel):
@@ -48,23 +61,36 @@ class AuditedDependency(BaseModel):
     version: str
 
 
-class DependencyVulnerability(BaseModel):
+class DependencyVulnerabilityMetadata(BaseModel):
     dependency: AuditedDependency
-    id: str
-    summary: str | None
     link: str
     fix_versions: list[str]
+
+
+class DependencyVulnerabilityFinding(_Finding):
+    kind: Literal["dependency-vulnerability"]
+    metadata: DependencyVulnerabilityMetadata
 
 
 class DependencyProjectStatus(BaseModel):
     name: str
     status: str
-    reason: str | None
+    reason: str | None = None
+
+
+class DependencyProjectStatusFinding(_Finding):
+    kind: Literal["dependency-project-status"]
+    metadata: DependencyProjectStatus
+
+
+type Finding = Annotated[
+    CICDFinding | DependencyVulnerabilityFinding | DependencyProjectStatusFinding,
+    Field(discriminator="kind"),
+]
 
 
 class DependencyAudit(BaseModel):
     audited_packages: int = Field(ge=0, strict=True)
-    vulnerabilities: list[DependencyVulnerability]
     adverse_statuses: list[DependencyProjectStatus]
 
 

@@ -51,9 +51,9 @@ uv run nomadsecops equivalence --details
 
 ## Reading findings
 
-The CLI groups findings by severity. Each finding includes the rule ID, file
-location, and a link to the rule documentation. Use `--verbose` to see evidence
-and suggested fixes.
+The CLI groups findings from all steps by severity. CI/CD findings show the
+rule ID, file location, and documentation link in the default view. Use
+`--verbose` for evidence and suggested fixes.
 
 ## Configuration
 

@@ -50,7 +50,12 @@ workflow:
     )
 
     assert result.status == AnalysisStatus.FINDINGS
-    assert [finding.location for finding in result.findings] == [
+    assert all(finding.kind == "ci-cd" for finding in result.findings)
+    assert [
+        finding.metadata.location
+        for finding in result.findings
+        if finding.kind == "ci-cd"
+    ] == [
         "image",
         "services[0]",
         "default.image.name",
@@ -60,19 +65,21 @@ workflow:
         "test.services[1].name",
     ]
     first = result.findings[0]
-    assert (first.line, first.column) == (1, 8)
-    assert first.evidence == "ubuntu"
-    assert first.rule_id == first.upstream.rule_id == "unpinned-images"
-    assert first.upstream == UPSTREAM
-    assert UPSTREAM.commit is not None and first.upstream.source_url is not None
-    assert UPSTREAM.commit in first.upstream.source_url
+    assert first.kind == "ci-cd"
+    metadata = first.metadata
+    assert (metadata.line, metadata.column) == (1, 8)
+    assert metadata.evidence == "ubuntu"
+    assert metadata.rule_id == metadata.upstream.rule_id == "unpinned-images"
+    assert metadata.upstream == UPSTREAM
+    assert UPSTREAM.commit is not None and metadata.upstream.source_url is not None
+    assert UPSTREAM.commit in metadata.upstream.source_url
     assert first.severity == "high"
-    assert first.confidence == "high"
-    assert first.persona == "regular"
-    assert "image@sha256" in first.remediation
-    assert (
-        result.model_dump(mode="json")["findings"][0]["upstream"]["version"] == "1.32.0"
-    )
+    assert first.advisory_id is None
+    assert metadata.confidence == "high"
+    assert metadata.persona == "regular"
+    assert "image@sha256" in metadata.remediation
+    entry = result.model_dump(mode="json")["findings"][0]
+    assert entry["metadata"]["upstream"]["version"] == "1.32.0"
 
 
 @pytest.mark.parametrize(
@@ -83,8 +90,10 @@ def test_dynamic_images_are_low_confidence(tmp_path: Path, reference: str) -> No
 
     assert result.status == AnalysisStatus.FINDINGS
     assert len(result.findings) == 1
-    assert result.findings[0].confidence == "low"
-    assert result.findings[0].message == "container image may be unpinned"
+    finding = result.findings[0]
+    assert finding.kind == "ci-cd"
+    assert finding.metadata.confidence == "low"
+    assert finding.message == "container image may be unpinned"
 
 
 def test_aliases_and_unrelated_reference_tags(tmp_path: Path) -> None:
@@ -99,7 +108,9 @@ test:
     )
 
     assert len(result.findings) == 2
-    assert result.findings[1].location == "test.image"
+    finding = result.findings[1]
+    assert finding.kind == "ci-cd"
+    assert finding.metadata.location == "test.image"
 
 
 @pytest.mark.parametrize(
@@ -176,8 +187,8 @@ def test_clean_offline_cli(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "equivalent: zizmor/unpinned-images@1.32.0" in result.output
     assert (
-        "Total findings: 0 (High: 0, Medium: 0, Low: 0, Informational: 0)"
-        in result.stdout
+        "Total findings: 0 (High: 0, Medium: 0, Low: 0, Informational: 0, "
+        "Severity unavailable: 0)" in result.stdout
     )
     assert "High severity" not in result.stdout
 
@@ -194,8 +205,9 @@ def test_cli_findings(tmp_path: Path, verbose: bool) -> None:
     result = CliRunner().invoke(app, args)
 
     assert result.exit_code == 1
-    assert "Total findings: 2 (High: 2, Medium: 0, Low: 0, Informational: 0)" in (
-        result.stdout
+    assert (
+        "Total findings: 2 (High: 2, Medium: 0, Low: 0, Informational: 0, "
+        "Severity unavailable: 0)" in result.stdout
     )
     assert result.stdout.count("High severity") == 1
     assert "include files are not resolved" in result.stderr
@@ -301,13 +313,14 @@ def test_policy_matches_zizmor_offline(
         )
     result = scan(tmp_path, yaml.safe_dump(gitlab_jobs), pedantic=persona == "pedantic")
     actual = {
-        finding.location.split(".")[0]: (
+        finding.metadata.location.split(".")[0]: (
             finding.message,
             finding.severity,
-            finding.confidence,
-            finding.persona,
+            finding.metadata.confidence,
+            finding.metadata.persona,
         )
         for finding in result.findings
+        if finding.kind == "ci-cd"
     }
 
     assert actual == upstream

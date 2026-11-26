@@ -8,7 +8,13 @@ UPSTREAM for the exact source revision and README.md for the scope mapping.
 from dataclasses import dataclass
 from typing import Literal
 
-from nomad_sec_ops.models import AnalysisStatus, CheckResult, Finding, UpstreamRule
+from nomad_sec_ops.models import (
+    AnalysisStatus,
+    CheckResult,
+    CICDFinding,
+    CICDFindingMetadata,
+    UpstreamRule,
+)
 from nomad_sec_ops.scanners.gitlab.context import GitLabContext
 from nomad_sec_ops.scanners.gitlab.pipeline import collect_images
 from nomad_sec_ops.scanners.zizmor_catalog import (
@@ -86,7 +92,7 @@ class UnpinnedImages:
                 message=f"No .gitlab-ci.yml found in {directory}.",
             )
         pipeline = collect_images(path)
-        findings: list[Finding] = []
+        findings: list[CICDFinding] = []
         for reference in pipeline.references:
             assessment = classify_image(reference.value)
             if assessment is None or (
@@ -94,22 +100,25 @@ class UnpinnedImages:
             ):
                 continue
             findings.append(
-                Finding(
-                    rule_id=self.name,
-                    severity="high",
-                    confidence=assessment.confidence,
-                    persona=assessment.persona,
-                    file=path.name,
-                    line=reference.line,
-                    column=reference.column,
-                    location=reference.location,
+                CICDFinding(
+                    kind="ci-cd",
                     message=assessment.message,
-                    evidence=reference.value,
-                    remediation=(
-                        "Pin the image to an immutable digest, "
-                        "e.g. image@sha256:<digest>."
+                    severity="high",
+                    metadata=CICDFindingMetadata(
+                        rule_id=self.name,
+                        confidence=assessment.confidence,
+                        persona=assessment.persona,
+                        file=path.name,
+                        line=reference.line,
+                        column=reference.column,
+                        location=reference.location,
+                        evidence=reference.value,
+                        remediation=(
+                            "Pin the image to an immutable digest, "
+                            "e.g. image@sha256:<digest>."
+                        ),
+                        upstream=self.upstream,
                     ),
-                    upstream=self.upstream,
                 )
             )
         status = (
@@ -126,14 +135,16 @@ class UnpinnedImages:
                 f"equivalent: zizmor/{self.upstream.rule_id}@{self.upstream.version}."
             ),
             stdout="".join(
-                f"{path}:{finding.line}:{finding.column}: "
-                f"{finding.severity}[{finding.rule_id}] {finding.message} "
-                f"({finding.location}; confidence: {finding.confidence})\n"
-                f"  image: {finding.evidence}\n  fix: {finding.remediation}\n"
+                f"{path}:{finding.metadata.line}:{finding.metadata.column}: "
+                f"{finding.severity}[{finding.metadata.rule_id}] {finding.message} "
+                f"({finding.metadata.location}; "
+                f"confidence: {finding.metadata.confidence})\n"
+                f"  image: {finding.metadata.evidence}\n"
+                f"  fix: {finding.metadata.remediation}\n"
                 for finding in findings
             ),
             stderr="".join(
                 f"Not evaluated: {reason}.\n" for reason in pipeline.limitations
             ),
-            findings=findings,
+            findings=list(findings),
         )

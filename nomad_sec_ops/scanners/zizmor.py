@@ -10,7 +10,14 @@ from tempfile import TemporaryDirectory
 
 import yaml
 
-from nomad_sec_ops.models import AnalysisStatus, CheckResult, Finding, UpstreamRule
+from nomad_sec_ops.models import (
+    AnalysisStatus,
+    CheckResult,
+    CICDFinding,
+    CICDFindingMetadata,
+    Finding,
+    UpstreamRule,
+)
 from nomad_sec_ops.scanners.zizmor_catalog import AUDITS, ZIZMOR_COMMIT, ZIZMOR_VERSION
 
 
@@ -64,28 +71,31 @@ def _parse_findings(output: str, directory: Path, version: str | None) -> list[F
         determinations = record["determinations"]
         fixes = record.get("fixes", [])
         findings.append(
-            Finding(
-                rule_id=rule_id,
-                severity=determinations["severity"].lower(),
-                confidence=determinations["confidence"].lower(),
-                persona=determinations["persona"].lower(),
-                file=file.relative_to(directory).as_posix(),
-                line=point["row"] + 1,
-                column=point["column"] + 1,
-                location=location,
+            CICDFinding(
+                kind="ci-cd",
                 message=message,
-                evidence=concrete["feature"].strip(),
-                remediation=(
-                    "; ".join(fix["title"] for fix in fixes)
-                    or f"See {documentation_url}"
-                ),
-                upstream=UpstreamRule(
-                    tool="zizmor",
+                severity=determinations["severity"].lower(),
+                metadata=CICDFindingMetadata(
                     rule_id=rule_id,
-                    version=version,
-                    commit=ZIZMOR_COMMIT if audit is not None else None,
-                    source_url=audit.source_url if audit is not None else None,
-                    documentation_url=documentation_url,
+                    confidence=determinations["confidence"].lower(),
+                    persona=determinations["persona"].lower(),
+                    file=file.relative_to(directory).as_posix(),
+                    line=point["row"] + 1,
+                    column=point["column"] + 1,
+                    location=location,
+                    evidence=concrete["feature"].strip(),
+                    remediation=(
+                        "; ".join(fix["title"] for fix in fixes)
+                        or f"See {documentation_url}"
+                    ),
+                    upstream=UpstreamRule(
+                        tool="zizmor",
+                        rule_id=rule_id,
+                        version=version,
+                        commit=ZIZMOR_COMMIT if audit is not None else None,
+                        source_url=audit.source_url if audit is not None else None,
+                        documentation_url=documentation_url,
+                    ),
                 ),
             )
         )
